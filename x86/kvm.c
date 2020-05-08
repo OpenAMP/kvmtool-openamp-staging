@@ -192,9 +192,9 @@ void kvm__irq_trigger(struct kvm *kvm, int irq)
 	kvm__irq_line(kvm, irq, 0);
 }
 
-#define BOOT_LOADER_SELECTOR	0x1000
+#define BOOT_LOADER_SELECTOR	0x3000
 #define BOOT_LOADER_IP		0x0000
-#define BOOT_LOADER_SP		0x8000
+#define BOOT_LOADER_SP		0x0000
 #define BOOT_CMDLINE_OFFSET	0x20000
 
 #define BOOT_PROTOCOL_REQUIRED	0x206
@@ -204,6 +204,7 @@ static inline void *guest_real_to_host(struct kvm *kvm, u16 selector, u16 offset
 {
 	unsigned long flat = ((u32)selector << 4) + offset;
 
+flat = 0x408000;
 	return guest_flat_to_host(kvm, flat);
 }
 
@@ -215,6 +216,8 @@ static bool load_flat_binary(struct kvm *kvm, int fd_kernel)
 		die_perror("lseek");
 
 	p = guest_real_to_host(kvm, BOOT_LOADER_SELECTOR, BOOT_LOADER_IP);
+
+printf ("load @ %p\n", p);
 
 	if (read_file(fd_kernel, p, kvm->cfg.ram_size) < 0)
 		die_perror("read");
