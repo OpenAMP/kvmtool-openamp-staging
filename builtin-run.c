@@ -159,6 +159,8 @@ void kvm_run_set_wrapper_sandbox(void)
 			"Enable MMIO debugging"),			\
 	OPT_INTEGER('\0', "debug-iodelay", &(cfg)->debug_iodelay,	\
 			"Delay IO by millisecond"),			\
+	OPT_BOOLEAN('\0', "debug-nohostfs", &(cfg)->nohostfs_debug,	\
+			"Don't attach 9p host file system"),		\
 									\
 	OPT_ARCH(RUN, cfg)						\
 	OPT_END()							\
@@ -605,10 +607,15 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 		kvm_setup_resolv(kvm->cfg.custom_rootfs_name);
 
 		snprintf(tmp, PATH_MAX, "%s%s", kvm__get_dir(), "default");
+
 		if (virtio_9p__register(kvm, tmp, "/dev/root") < 0)
 			die("Unable to initialize virtio 9p");
-		if (virtio_9p__register(kvm, "/", "hostfs") < 0)
-			die("Unable to initialize virtio 9p");
+
+		if (!kvm->cfg.nohostfs_debug) {
+			if (virtio_9p__register(kvm, "/", "hostfs") < 0)
+				die("Unable to initialize virtio 9p");
+		}
+
 		kvm->cfg.using_rootfs = kvm->cfg.custom_rootfs = 1;
 	}
 

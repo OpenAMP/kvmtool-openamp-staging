@@ -18,6 +18,8 @@
 
 extern __thread struct kvm_cpu *current_kvm_cpu;
 
+void vxworks_hack (struct kvm *kvm);
+
 int __attribute__((weak)) kvm_cpu__get_endianness(struct kvm_cpu *vcpu)
 {
 	return VIRTIO_ENDIAN_HOST;
@@ -141,6 +143,72 @@ void kvm_cpu__run_on_all_cpus(struct kvm *kvm, struct kvm_cpu_task *task)
 	mutex_unlock(&task_lock);
 }
 
+
+static void setup_protected_mode(struct kvm_sregs *sregs)
+{
+	struct kvm_segment seg = {
+		.base = 0,
+		.limit = 0xffffffff,
+		.selector = 1 << 3,
+		.present = 1,
+		.type = 11, /* Code: execute, read, accessed */
+		.dpl = 0,
+		.db = 1,
+		.s = 1, /* Code/data */
+		.l = 0,
+		.g = 1, /* 4KB granularity */
+	};
+
+#define CR0_PE		0x00000001	/* Enable protected mode */
+
+	sregs->cr0 |= CR0_PE; /* enter protected mode */
+
+	sregs->cs = seg;
+
+	seg.type = 3; /* Data: read/write, accessed */
+	seg.selector = 2 << 3;
+	sregs->ds = sregs->es = sregs->fs = sregs->gs = sregs->ss = seg;
+}
+
+void vxworks_hack (struct kvm *kvm)
+{
+	struct kvm_cpu *vcpu;
+	struct kvm_sregs sregs;
+	struct kvm_regs regs;
+
+	printf("VxWorks hack....\n");
+
+	vcpu = kvm->cpus[0];
+
+        if (ioctl(vcpu->vcpu_fd, KVM_GET_SREGS, &sregs) < 0) {
+		perror("KVM_GET_SREGS");
+		exit(1);
+	}
+
+	setup_protected_mode(&sregs);
+
+        if (ioctl(vcpu->vcpu_fd, KVM_SET_SREGS, &sregs) < 0) {
+		perror("KVM_SET_SREGS");
+		exit(1);
+	}
+
+	memset(&regs, 0, sizeof(regs));
+
+	/* Clear all FLAGS bits, except bit 1 which is always set. */
+
+	regs.rflags = 2;
+	regs.rip = 0x300000;
+	regs.rsp = 0x200000;
+
+	regs.rip = 0x408000;
+	regs.rsp = 0x300000;
+
+	if (ioctl(vcpu->vcpu_fd, KVM_SET_REGS, &regs) < 0) {
+		perror("KVM_SET_REGS");
+		exit(1);
+	}
+}
+
 int kvm_cpu__start(struct kvm_cpu *cpu)
 {
 	sigset_t sigset;
@@ -155,6 +223,8 @@ int kvm_cpu__start(struct kvm_cpu *cpu)
 	signal(SIGKVMTASK, kvm_cpu_signal_handler);
 
 	kvm_cpu__reset_vcpu(cpu);
+
+	vxworks_hack (cpu->kvm);
 
 	if (cpu->kvm->cfg.single_step)
 		kvm_cpu__enable_singlestep(cpu);
