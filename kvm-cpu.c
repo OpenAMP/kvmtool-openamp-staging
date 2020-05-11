@@ -176,7 +176,9 @@ void vxworks_hack (struct kvm *kvm)
 	struct kvm_sregs sregs;
 	struct kvm_regs regs;
 
+#ifdef NO_TERSE
 	printf("VxWorks hack....\n");
+#endif
 
 	vcpu = kvm->cpus[0];
 

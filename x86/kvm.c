@@ -195,8 +195,7 @@ void kvm__irq_trigger(struct kvm *kvm, int irq)
 #define BOOT_LOADER_SELECTOR	0x3000
 #define BOOT_LOADER_IP		0x0000
 #define BOOT_LOADER_SP		0x0000
-#define BOOT_CMDLINE_OFFSET	0x20000
-
+#define BOOT_CMDLINE_OFFSET	0x101200
 #define BOOT_PROTOCOL_REQUIRED	0x206
 #define LOAD_HIGH		0x01
 
@@ -211,13 +210,13 @@ flat = 0x408000;
 static bool load_flat_binary(struct kvm *kvm, int fd_kernel)
 {
 	void *p;
+	const char *kernel_cmdline = kvm->cfg.kernel_cmdline;
+	size_t cmdline_size;
 
 	if (lseek(fd_kernel, 0, SEEK_SET) < 0)
 		die_perror("lseek");
 
 	p = guest_real_to_host(kvm, BOOT_LOADER_SELECTOR, BOOT_LOADER_IP);
-
-printf ("load @ %p\n", p);
 
 	if (read_file(fd_kernel, p, kvm->cfg.ram_size) < 0)
 		die_perror("read");
@@ -225,6 +224,17 @@ printf ("load @ %p\n", p);
 	kvm->arch.boot_selector	= BOOT_LOADER_SELECTOR;
 	kvm->arch.boot_ip	= BOOT_LOADER_IP;
 	kvm->arch.boot_sp	= BOOT_LOADER_SP;
+
+	if (kernel_cmdline) {
+		cmdline_size = strlen(kernel_cmdline) + 1;
+		if ((p = guest_flat_to_host(kvm,BOOT_CMDLINE_OFFSET)) != NULL) {
+			/* max size of VxWorks command line */
+			if (cmdline_size > 256)
+				cmdline_size = 256;
+			memset(p, 0, cmdline_size);
+			memcpy(p, kernel_cmdline, cmdline_size - 1);
+			}
+		}
 
 	return true;
 }
@@ -343,8 +353,10 @@ bool kvm__arch_load_kernel_image(struct kvm *kvm, int fd_kernel, int fd_initrd,
 {
 	if (load_bzimage(kvm, fd_kernel, fd_initrd, kernel_cmdline))
 		return true;
+#ifdef NO_APPSTAR
 	pr_warning("Kernel image is not a bzImage.");
 	pr_warning("Trying to load it as a flat binary (no cmdline support)");
+#endif
 
 	if (fd_initrd != -1)
 		pr_warning("Loading initrd with flat binary not supported.");

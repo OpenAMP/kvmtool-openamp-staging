@@ -610,12 +610,10 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 
 		if (virtio_9p__register(kvm, tmp, "/dev/root") < 0)
 			die("Unable to initialize virtio 9p");
-
 		if (!kvm->cfg.nohostfs_debug) {
 			if (virtio_9p__register(kvm, "/", "hostfs") < 0)
 				die("Unable to initialize virtio 9p");
 		}
-
 		kvm->cfg.using_rootfs = kvm->cfg.custom_rootfs = 1;
 	}
 
@@ -647,10 +645,14 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 	kvm->cfg.real_cmdline = real_cmdline;
 
 	if (kvm->cfg.kernel_filename) {
+#ifdef NO_TERSE
 		printf("  # %s run -k %s -m %Lu -c %d --name %s\n", KVM_BINARY_NAME,
 		       kvm->cfg.kernel_filename,
 		       (unsigned long long)kvm->cfg.ram_size / 1024 / 1024,
 		       kvm->cfg.nrcpus, kvm->cfg.guest_name);
+#else
+do {} while (0);
+#endif
 	} else if (kvm->cfg.firmware_filename) {
 		printf("  # %s run --firmware %s -m %Lu -c %d --name %s\n", KVM_BINARY_NAME,
 		       kvm->cfg.firmware_filename,
@@ -686,8 +688,10 @@ static void kvm_cmd_run_exit(struct kvm *kvm, int guest_ret)
 
 	init_list__exit(kvm);
 
+#ifdef NO_TERSE
 	if (guest_ret == 0)
 		printf("\n  # KVM session ended normally.\n");
+#endif
 }
 
 int kvm_cmd_run(int argc, const char **argv, const char *prefix)
