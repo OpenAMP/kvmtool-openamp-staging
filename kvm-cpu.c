@@ -143,6 +143,7 @@ void kvm_cpu__run_on_all_cpus(struct kvm *kvm, struct kvm_cpu_task *task)
 	mutex_unlock(&task_lock);
 }
 
+#if defined(CONFIG_X86)
 
 static void setup_protected_mode(struct kvm_sregs *sregs)
 {
@@ -211,6 +212,8 @@ void vxworks_hack (struct kvm *kvm)
 	}
 }
 
+#endif /* CONFIG_X86_32 || CONFIG_X86_64 */
+
 int kvm_cpu__start(struct kvm_cpu *cpu)
 {
 	sigset_t sigset;
@@ -226,7 +229,9 @@ int kvm_cpu__start(struct kvm_cpu *cpu)
 
 	kvm_cpu__reset_vcpu(cpu);
 
+#if defined(CONFIG_X86)
 	vxworks_hack (cpu->kvm);
+#endif
 
 	if (cpu->kvm->cfg.single_step)
 		kvm_cpu__enable_singlestep(cpu);
