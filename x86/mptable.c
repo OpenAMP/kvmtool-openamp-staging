@@ -180,11 +180,11 @@ int mptable__init(struct kvm *kvm)
 		unsigned char srcbusirq;
 		struct pci_device_header *pci_hdr = dev_hdr->data;
 
-		srcbusirq = (pci_hdr->subsys_id << 2) | (pci_hdr->irq_pin - 1);
+		srcbusirq = ((dev_hdr->dev_num) << 2) | (pci_hdr->irq_pin - 1);
 		mpc_intsrc = last_addr;
 		mptable_add_irq_src(mpc_intsrc, pcibusid, srcbusirq, ioapicid, pci_hdr->irq_line);
 
-		last_addr = (void *)&mpc_intsrc[dev_hdr->dev_num];
+		last_addr = (void *)&mpc_intsrc[1];
 		nentries++;
 		dev_hdr = device__next_dev(dev_hdr);
 	}
