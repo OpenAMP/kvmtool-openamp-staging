@@ -128,9 +128,14 @@ static bool virtio_pci__specific_data_in(struct kvm *kvm, struct virtio_device *
 		return true;
 	} else if (type == VIRTIO_PCI_O_CONFIG) {
 		u8 cfg;
+                unsigned int i;
 
-		cfg = vdev->ops->get_config(kvm, vpci->dev)[config_offset];
-		ioport__write8(data, cfg);
+                for (i = 0; i < (unsigned int) size; i++) {
+                        cfg = vdev->ops->get_config(kvm, vpci->dev)
+                                                               [config_offset + i];
+                        ioport__write8((u8 *)data + i, cfg);
+                }
+
 		return true;
 	}
 
@@ -277,8 +282,13 @@ static bool virtio_pci__specific_data_out(struct kvm *kvm, struct virtio_device 
 
 		return true;
 	} else if (type == VIRTIO_PCI_O_CONFIG) {
-		vdev->ops->get_config(kvm, vpci->dev)[config_offset] = *(u8 *)data;
+                unsigned int i;
 
+                for (i = 0; i < (unsigned int) size; i++) {
+                        vdev->ops->get_config(kvm, vpci->dev)[config_offset + i] = 
+                                                                     *(u8 *)data + i;
+                          
+                }
 		return true;
 	}
 
