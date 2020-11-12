@@ -101,6 +101,8 @@ static void stat2qid(struct stat *st, struct p9_qid *qid)
 
 	if (S_ISDIR(st->st_mode))
 		qid->type	|= P9_QTDIR;
+        else if (S_ISLNK(st->st_mode))
+                qid->type       |= P9_QTSYMLINK;
 }
 
 static void close_fid(struct p9_dev *p9dev, u32 fid)
@@ -495,7 +497,7 @@ static void virtio_p9_walk(struct p9_dev *p9dev,
 	}
 	*outlen = pdu->write_offset;
 	pdu->write_offset = VIRTIO_9P_HDR_LEN;
-	virtio_p9_pdu_writef(pdu, "d", nwqid);
+	virtio_p9_pdu_writef(pdu, "w", nwqid);
 	virtio_p9_set_reply_header(pdu, *outlen);
 	return;
 err_out:
