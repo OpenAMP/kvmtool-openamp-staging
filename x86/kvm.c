@@ -35,6 +35,15 @@ struct kvm_ext kvm_req_ext[] = {
 	{ 0, 0 }
 };
 
+#define BOOT_LOADER_SELECTOR 	0
+#define BOOT_LOADER_IP 		1
+#define BOOT_LOADER_SP 		2
+#define BOOT_CMDLINE_OFFSET 	3
+#define BOOT_PROTOCOL_REQUIRED 	4
+#define LOAD_HIGH 		5
+
+static u32 kvm_boot_val[LOAD_HIGH + 1] = { 0 };
+
 bool kvm__arch_cpu_supports_vm(void)
 {
 	struct cpuid_regs regs;
@@ -135,6 +144,28 @@ void kvm__arch_init(struct kvm *kvm, const char *hugetlbfs_path, u64 ram_size)
 	struct kvm_pit_config pit_config = { .flags = 0, };
 	int ret;
 
+	if (!kvm->cfg.vxworks_kernel) {
+
+		/* linux values */
+
+		kvm_boot_val[BOOT_LOADER_SELECTOR]   = 0x1000;
+		kvm_boot_val[BOOT_LOADER_IP] 	     = 0x0000;
+		kvm_boot_val[BOOT_LOADER_SP]         = 0x8000;
+		kvm_boot_val[BOOT_CMDLINE_OFFSET]    = 0x20000;
+		kvm_boot_val[BOOT_PROTOCOL_REQUIRED] = 0x206;
+		kvm_boot_val[LOAD_HIGH]              = 0x01;
+	} else {
+
+		/* vxworks values */
+
+		kvm_boot_val[BOOT_LOADER_SELECTOR]   = 0x3000;
+		kvm_boot_val[BOOT_LOADER_IP] 	     = 0x0000;
+		kvm_boot_val[BOOT_LOADER_SP]         = 0x0000;
+		kvm_boot_val[BOOT_CMDLINE_OFFSET]    = 0x101200;
+		kvm_boot_val[BOOT_PROTOCOL_REQUIRED] = 0x206;
+		kvm_boot_val[LOAD_HIGH]              = 0x01;
+	}
+	
 	ret = ioctl(kvm->vm_fd, KVM_SET_TSS_ADDR, 0xfffbd000);
 	if (ret < 0)
 		die_perror("KVM_SET_TSS_ADDR ioctl");
@@ -192,18 +223,13 @@ void kvm__irq_trigger(struct kvm *kvm, int irq)
 	kvm__irq_line(kvm, irq, 0);
 }
 
-#define BOOT_LOADER_SELECTOR	0x3000
-#define BOOT_LOADER_IP		0x0000
-#define BOOT_LOADER_SP		0x0000
-#define BOOT_CMDLINE_OFFSET	0x101200
-#define BOOT_PROTOCOL_REQUIRED	0x206
-#define LOAD_HIGH		0x01
-
 static inline void *guest_real_to_host(struct kvm *kvm, u16 selector, u16 offset)
 {
 	unsigned long flat = ((u32)selector << 4) + offset;
 
-flat = 0x408000;
+	if (kvm->cfg.vxworks_kernel)
+		flat = 0x408000;
+
 	return guest_flat_to_host(kvm, flat);
 }
 
@@ -216,25 +242,28 @@ static bool load_flat_binary(struct kvm *kvm, int fd_kernel)
 	if (lseek(fd_kernel, 0, SEEK_SET) < 0)
 		die_perror("lseek");
 
-	p = guest_real_to_host(kvm, BOOT_LOADER_SELECTOR, BOOT_LOADER_IP);
+	p = guest_real_to_host(kvm,
+		kvm_boot_val[BOOT_LOADER_SELECTOR],
+		kvm_boot_val[BOOT_LOADER_IP]);
 
 	if (read_file(fd_kernel, p, kvm->cfg.ram_size) < 0)
 		die_perror("read");
 
-	kvm->arch.boot_selector	= BOOT_LOADER_SELECTOR;
-	kvm->arch.boot_ip	= BOOT_LOADER_IP;
-	kvm->arch.boot_sp	= BOOT_LOADER_SP;
+	kvm->arch.boot_selector	= kvm_boot_val[BOOT_LOADER_SELECTOR];
+	kvm->arch.boot_ip	= kvm_boot_val[BOOT_LOADER_IP];
+	kvm->arch.boot_sp	= kvm_boot_val[BOOT_LOADER_SP];
 
 	if (kernel_cmdline) {
 		cmdline_size = strlen(kernel_cmdline) + 1;
-		if ((p = guest_flat_to_host(kvm,BOOT_CMDLINE_OFFSET)) != NULL) {
+		if ((p = guest_flat_to_host(kvm,
+				kvm_boot_val[BOOT_CMDLINE_OFFSET])) != NULL) {
 			/* max size of VxWorks command line */
 			if (cmdline_size > 256)
 				cmdline_size = 256;
 			memset(p, 0, cmdline_size);
 			memcpy(p, kernel_cmdline, cmdline_size - 1);
-			}
 		}
+	}
 
 	return true;
 }
@@ -262,7 +291,7 @@ static bool load_bzimage(struct kvm *kvm, int fd_kernel, int fd_initrd,
 	if (memcmp(&boot.hdr.header, BZIMAGE_MAGIC, strlen(BZIMAGE_MAGIC)))
 		return false;
 
-	if (boot.hdr.version < BOOT_PROTOCOL_REQUIRED)
+	if (boot.hdr.version < kvm_boot_val[BOOT_PROTOCOL_REQUIRED])
 		die("Too old kernel");
 
 	if (lseek(fd_kernel, 0, SEEK_SET) < 0)
@@ -271,7 +300,9 @@ static bool load_bzimage(struct kvm *kvm, int fd_kernel, int fd_initrd,
 	if (!boot.hdr.setup_sects)
 		boot.hdr.setup_sects = BZ_DEFAULT_SETUP_SECTS;
 	file_size = (boot.hdr.setup_sects + 1) << 9;
-	p = guest_real_to_host(kvm, BOOT_LOADER_SELECTOR, BOOT_LOADER_IP);
+	p = guest_real_to_host(kvm,
+		kvm_boot_val[BOOT_LOADER_SELECTOR],
+		kvm_boot_val[BOOT_LOADER_IP]);
 	if (read_in_full(fd_kernel, p, file_size) != file_size)
 		die_perror("kernel setup read");
 
@@ -282,7 +313,7 @@ static bool load_bzimage(struct kvm *kvm, int fd_kernel, int fd_initrd,
 	if (file_size < 0)
 		die_perror("kernel read");
 
-	p = guest_flat_to_host(kvm, BOOT_CMDLINE_OFFSET);
+	p = guest_flat_to_host(kvm, kvm_boot_val[BOOT_CMDLINE_OFFSET]);
 	if (kernel_cmdline) {
 		cmdline_size = strlen(kernel_cmdline) + 1;
 		if (cmdline_size > boot.hdr.cmdline_size)
@@ -302,9 +333,10 @@ static bool load_bzimage(struct kvm *kvm, int fd_kernel, int fd_initrd,
 		vidmode = 0;
 	}
 
-	kern_boot	= guest_real_to_host(kvm, BOOT_LOADER_SELECTOR, 0x00);
+	kern_boot	= guest_real_to_host(kvm,
+				kvm_boot_val[BOOT_LOADER_SELECTOR], 0x00);
 
-	kern_boot->hdr.cmd_line_ptr	= BOOT_CMDLINE_OFFSET;
+	kern_boot->hdr.cmd_line_ptr	= kvm_boot_val[BOOT_CMDLINE_OFFSET];
 	kern_boot->hdr.type_of_loader	= 0xff;
 	kern_boot->hdr.heap_end_ptr	= 0xfe00;
 	kern_boot->hdr.loadflags	|= CAN_USE_HEAP;
@@ -337,13 +369,13 @@ static bool load_bzimage(struct kvm *kvm, int fd_kernel, int fd_initrd,
 		kern_boot->hdr.ramdisk_size	= initrd_stat.st_size;
 	}
 
-	kvm->arch.boot_selector = BOOT_LOADER_SELECTOR;
+	kvm->arch.boot_selector = kvm_boot_val[BOOT_LOADER_SELECTOR];
 	/*
 	 * The real-mode setup code starts at offset 0x200 of a bzImage. See
 	 * Documentation/x86/boot.txt for details.
 	 */
-	kvm->arch.boot_ip = BOOT_LOADER_IP + 0x200;
-	kvm->arch.boot_sp = BOOT_LOADER_SP;
+	kvm->arch.boot_ip = kvm_boot_val[BOOT_LOADER_IP] + 0x200;
+	kvm->arch.boot_sp = kvm_boot_val[BOOT_LOADER_SP];
 
 	return true;
 }

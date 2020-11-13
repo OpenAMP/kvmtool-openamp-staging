@@ -95,11 +95,39 @@
 /* Device status register - Read Write */
 #define VIRTIO_MMIO_STATUS		0x070
 
+/* Shared memory set selector - Write only */
+#define VIRTIO_MMIO_SHM_ID_SEL          0x0ac
+
+/* Shared memory region length - Read only */
+#define VIRTIO_MMIO_SHM_LEN_LOW         0x0b0
+#define VIRTIO_MMIO_SHM_LEN_HIGH        0x0b4
+
+/* Shared memory region base addr - Read only */
+#define VIRTIO_MMIO_SHM_ADDR_LOW        0x0b8
+#define VIRTIO_MMIO_SHM_ADDR_HIGH       0x0bc
+
+/* MSI max vector number - Read only */
+#define VIRTIO_MMIO_MSI_VEC_NUM         0x0c0
+
+/* MSI state - Read only */
+#define VIRTIO_MMIO_MSI_STATE           0x0c4
+
+/* MSI command - Write only */
+#define VIRTIO_MMIO_MSI_CMD             0x0c8
+
+/* MSI vector select - Write only */
+#define VIRTIO_MMIO_MSI_VEC_SEL         0x0d0
+
+/* MSI address - Write only */
+#define VIRTIO_MMIO_MSI_ADDR_LO         0x0d4
+#define VIRTIO_MMIO_MSI_ADDR_HI         0x0d8
+
+/* MSI data - Write only */
+#define VIRTIO_MMIO_MSI_DATA            0x0dc
+
 /* The config space is defined by each driver as
  * the per-driver configuration space - Read Write */
 #define VIRTIO_MMIO_CONFIG		0x100
-
-
 
 /*
  * Interrupt flags (re: interrupt status & acknowledge registers)
@@ -107,5 +135,29 @@
 
 #define VIRTIO_MMIO_INT_VRING		(1 << 0)
 #define VIRTIO_MMIO_INT_CONFIG		(1 << 1)
+
+/* MSI commands */
+
+#define VIRTIO_MMIO_MSI_CMD_ENABLE      0x1
+#define VIRTIO_MMIO_MSI_CMD_DISABLE     0x2
+#define VIRTIO_MMIO_MSI_CMD_CONFIGURE   0x3
+#define VIRTIO_MMIO_MSI_CMD_MASK        0x4
+#define VIRTIO_MMIO_MSI_CMD_UNMASK      0x5
+#define VIRTIO_MMIO_MSI_CMD_MAP_CONFIG  0x6
+#define VIRTIO_MMIO_MSI_CMD_MAP_QUEUE   0x7
+
+/* Vector value used to disable an MSI event */
+
+#define VIRTIO_MMIO_MSI_NO_VECTOR       0xffffffff
+
+/* MSI reserved feature bits */
+
+#define VIRTIO_F_MMIO_NOTIFICATION      39 
+#define VIRTIO_F_MMIO_MSI               40
+
+/* MSI state */
+
+#define VIRTIO_MMIO_MSI_ENABLED         (1 << 31)
+#define VIRTIO_MMIO_MSI_SHARING         (1 << 30)
 
 #endif

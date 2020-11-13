@@ -62,6 +62,7 @@ struct kvm_config {
 	bool ioport_debug;
 	bool mmio_debug;
 	bool nohostfs_debug;
+        bool vxworks_kernel;
 };
 
 #endif
