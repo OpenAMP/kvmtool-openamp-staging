@@ -202,14 +202,11 @@ static int vfio_setup_trap_region(struct kvm *kvm, struct vfio_device *vdev,
 				  struct vfio_region *region)
 {
 	if (region->is_ioport) {
-		int port = pci_get_io_port_block(region->info.size);
-
-		port = ioport__register(kvm, port, &vfio_ioport_ops,
-					region->info.size, region);
+		int port = ioport__register(kvm, region->port_base,
+					   &vfio_ioport_ops, region->info.size,
+					   region);
 		if (port < 0)
 			return port;
-
-		region->port_base = port;
 		return 0;
 	}
 
@@ -228,6 +225,15 @@ int vfio_map_region(struct kvm *kvm, struct vfio_device *vdev,
 
 	if (!(region->info.flags & VFIO_REGION_INFO_FLAG_MMAP))
 		return vfio_setup_trap_region(kvm, vdev, region);
+
+	/*
+	 * KVM_SET_USER_MEMORY_REGION will fail because the guest physical
+	 * address isn't page aligned, let's emulate the region ourselves.
+	 */
+	if (region->guest_phys_addr & (PAGE_SIZE - 1))
+		return kvm__register_mmio(kvm, region->guest_phys_addr,
+					  region->info.size, false,
+					  vfio_mmio_access, region);
 
 	if (region->info.flags & VFIO_REGION_INFO_FLAG_READ)
 		prot |= PROT_READ;

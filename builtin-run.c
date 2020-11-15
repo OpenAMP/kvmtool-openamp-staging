@@ -106,6 +106,7 @@ void kvm_run_set_wrapper_sandbox(void)
 	OPT_BOOLEAN('\0', "vnc", &(cfg)->vnc, "Enable VNC framebuffer"),\
 	OPT_BOOLEAN('\0', "gtk", &(cfg)->gtk, "Enable GTK framebuffer"),\
 	OPT_BOOLEAN('\0', "sdl", &(cfg)->sdl, "Enable SDL framebuffer"),\
+	OPT_BOOLEAN('\0', "fb", &(cfg)->fb, "Enable fb passthrough"),	\
 	OPT_BOOLEAN('\0', "rng", &(cfg)->virtio_rng, "Enable virtio"	\
 			" Random Number Generator"),			\
 	OPT_CALLBACK('\0', "9p", NULL, "dir_to_share,tag_name",		\
@@ -545,6 +546,11 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 		kvm->cfg.console = DEFAULT_CONSOLE;
 
 	video = kvm->cfg.vnc || kvm->cfg.sdl || kvm->cfg.gtk;
+	if (video) {
+		if ((kvm->cfg.vnc && (kvm->cfg.sdl || kvm->cfg.gtk)) ||
+		    (kvm->cfg.sdl && kvm->cfg.gtk))
+			die("Only one of --vnc, --sdl or --gtk can be specified");
+	}
 
 	if (!strncmp(kvm->cfg.console, "virtio", 6))
 		kvm->cfg.active_console  = CONSOLE_VIRTIO;
