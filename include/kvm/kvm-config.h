@@ -54,6 +54,7 @@ struct kvm_config {
 	bool vnc;
 	bool gtk;
 	bool sdl;
+	bool fb;
 	bool balloon;
 	bool using_rootfs;
 	bool custom_rootfs;

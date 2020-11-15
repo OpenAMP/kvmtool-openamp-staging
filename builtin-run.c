@@ -106,6 +106,7 @@ void kvm_run_set_wrapper_sandbox(void)
 	OPT_BOOLEAN('\0', "vnc", &(cfg)->vnc, "Enable VNC framebuffer"),\
 	OPT_BOOLEAN('\0', "gtk", &(cfg)->gtk, "Enable GTK framebuffer"),\
 	OPT_BOOLEAN('\0', "sdl", &(cfg)->sdl, "Enable SDL framebuffer"),\
+	OPT_BOOLEAN('\0', "fb", &(cfg)->fb, "Enable fb passthrough"),	\
 	OPT_BOOLEAN('\0', "rng", &(cfg)->virtio_rng, "Enable virtio"	\
 			" Random Number Generator"),			\
 	OPT_CALLBACK('\0', "9p", NULL, "dir_to_share,tag_name",		\

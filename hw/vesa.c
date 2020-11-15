@@ -18,6 +18,10 @@
 #include <inttypes.h>
 #include <unistd.h>
 
+int VESA_WIDTH = _VESA_WIDTH;
+int VESA_HEIGHT = _VESA_HEIGHT;
+int VESA_MEM_SIZE = _VESA_MEM_SIZE;
+
 static struct pci_device_header vesa_pci_device = {
 	.vendor_id	= cpu_to_le16(PCI_VENDOR_ID_REDHAT_QUMRANET),
 	.device_id	= cpu_to_le16(PCI_DEVICE_ID_VESA),
@@ -27,7 +31,7 @@ static struct pci_device_header vesa_pci_device = {
 	.subsys_vendor_id = cpu_to_le16(PCI_SUBSYSTEM_VENDOR_ID_REDHAT_QUMRANET),
 	.subsys_id	= cpu_to_le16(PCI_SUBSYSTEM_ID_VESA),
 	.bar[1]		= cpu_to_le32(VESA_MEM_ADDR | PCI_BASE_ADDRESS_SPACE_MEMORY),
-	.bar_size[1]	= VESA_MEM_SIZE,
+	.bar_size[1]	= _VESA_MEM_SIZE,
 };
 
 static struct device_header vesa_device = {
@@ -36,11 +40,11 @@ static struct device_header vesa_device = {
 };
 
 static struct framebuffer vesafb = {
-	.width		= VESA_WIDTH,
-	.height		= VESA_HEIGHT,
+	.width		= _VESA_WIDTH,
+	.height		= _VESA_HEIGHT,
 	.depth		= VESA_BPP,
 	.mem_addr	= VESA_MEM_ADDR,
-	.mem_size	= VESA_MEM_SIZE,
+	.mem_size	= _VESA_MEM_SIZE,
 };
 
 static bool vesa_pci_io_in(struct ioport *ioport, struct kvm_cpu *vcpu, u16 port, void *data, int size)
@@ -72,6 +76,71 @@ static int vesa__bar_deactivate(struct kvm *kvm, struct pci_device_header *pci_h
 	return -EINVAL;
 }
 
+#include <linux/fb.h>
+#include <sys/ioctl.h>
+
+static void * vesa_fb_passthrough (void)
+{
+	unsigned char *fb = MAP_FAILED;
+	struct fb_var_screeninfo vi;
+	int nbytes, fd = open("/dev/fb0", O_RDWR|O_DIRECT);
+
+	if (fd < 0) {
+		fprintf(stderr,"could not open /dev/fb0 for vesa fb passthrough\n");
+		return (MAP_FAILED);
+	}
+
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &vi) == -1)
+		goto bail;
+
+	if (vi.xres != vi.xres_virtual || vi.yres != vi.yres_virtual)
+		fprintf(stderr,"Warning: /dev/fb0 scan lines not contiguous. Check with fbset\n");
+	if (vi.bits_per_pixel != VESA_BPP)
+		fprintf(stderr, "Warning: /dev/fb0 not %d bits per pixel\n",VESA_BPP);
+	nbytes = vi.xres_virtual * vi.yres_virtual * vi.bits_per_pixel / 8;
+	nbytes = (nbytes + 4095) & ~4095; /* round to next page */
+	printf ("vesa: mapping %d bytes\n", nbytes);
+	if ((fb = (unsigned char *) mmap(0, nbytes, PROT_RW,
+			 MAP_SHARED|MAP_LOCKED, fd, 0)) == MAP_FAILED)
+		goto bail;
+
+	memset(fb, 0, nbytes);
+
+	vesafb.width    = vi.xres_virtual;
+	vesafb.height   = vi.yres_virtual;
+   	vesafb.mem_size = nbytes;
+
+	VESA_WIDTH    = vi.xres_virtual;
+	VESA_HEIGHT   = vi.yres_virtual;
+	VESA_MEM_SIZE = nbytes;
+
+	vesa_pci_device.bar_size[1] = nbytes;
+
+	/* fallthrough */
+bail:
+        close(fd);
+
+        return (fb);
+}
+
+static int fb_passthrough__init(struct kvm *kvm)
+{
+        struct framebuffer *fb;
+
+        if (!kvm->cfg.fb)
+                return 0;
+
+        fb = vesa__init(kvm);
+        if (IS_ERR(fb)) {
+                pr_err("vesa__init() failed with error %ld\n", PTR_ERR(fb));
+                return PTR_ERR(fb);
+        }
+
+        return 0;
+}
+dev_init(fb_passthrough__init);
+
+
 struct framebuffer *vesa__init(struct kvm *kvm)
 {
 	u16 vesa_base_addr;
@@ -97,7 +166,10 @@ struct framebuffer *vesa__init(struct kvm *kvm)
 	if (r < 0)
 		goto unregister_ioport;
 
-	mem = mmap(NULL, VESA_MEM_SIZE, PROT_RW, MAP_ANON_NORESERVE, -1, 0);
+	if (kvm->cfg.fb)
+		mem = vesa_fb_passthrough();
+	else
+		mem = mmap(NULL, VESA_MEM_SIZE, PROT_RW, MAP_ANON_NORESERVE, -1, 0);
 	if (mem == MAP_FAILED) {
 		r = -errno;
 		goto unregister_device;
