@@ -378,6 +378,10 @@ WARNINGS += -Wno-format-nonliteral
 
 CFLAGS	+= $(WARNINGS)
 
+ifeq ($(LKVM_PMM),1)
+	CFLAGS += -DLKVM_PMM=1
+endif
+
 ifneq ($(WERROR),0)
 	CFLAGS += -Werror
 endif

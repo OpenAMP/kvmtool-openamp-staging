@@ -63,6 +63,13 @@ struct kvm_config {
 	bool ioport_debug;
 	bool mmio_debug;
 	bool nohostfs_debug;
+#ifdef LKVM_PMM
+    const char *transport;
+    bool pmm;
+    int hvl_irq;
+    u64 hvl_shmem_phys_addr;
+    u64 hvl_shmem_size;
+#endif
 };
 
 #endif

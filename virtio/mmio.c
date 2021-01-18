@@ -21,6 +21,22 @@ static u32 virtio_mmio_get_io_space_block(u32 size)
 	return block;
 }
 
+#ifdef LKVM_PMM
+static u64 virtio_mmio_shm_space_blocks;
+static u64 virtio_mmio_get_shm_space_block(struct kvm *kvm, u32 size)
+{
+    u64 block;
+
+    if (virtio_mmio_shm_space_blocks == 0) {
+        virtio_mmio_shm_space_blocks = kvm->cfg.hvl_shmem_phys_addr;
+    }
+    block = virtio_mmio_shm_space_blocks;
+	virtio_mmio_shm_space_blocks += size;
+
+	return block;
+}
+#endif
+
 static void virtio_mmio_ioevent_callback(struct kvm *kvm, void *param)
 {
 	struct virtio_mmio_ioevent_param *ioeventfd = param;
@@ -74,6 +90,9 @@ int virtio_mmio_signal_vq(struct kvm *kvm, struct virtio_device *vdev, u32 vq)
 	struct virtio_mmio *vmmio = vdev->virtio;
 
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_VRING;
+#ifdef LKVM_PMM
+    vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
+#endif
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
 
 	return 0;
@@ -93,6 +112,9 @@ int virtio_mmio_signal_config(struct kvm *kvm, struct virtio_device *vdev)
 	struct virtio_mmio *vmmio = vdev->virtio;
 
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_CONFIG;
+#ifdef LKVM_PMM
+    vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_CONFIG;
+#endif
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
 
 	return 0;
@@ -130,6 +152,12 @@ static void virtio_mmio_config_in(struct kvm_cpu *vcpu,
 	case VIRTIO_MMIO_VENDOR_ID:
 	case VIRTIO_MMIO_STATUS:
 	case VIRTIO_MMIO_INTERRUPT_STATUS:
+#ifdef LKVM_PMM
+	case VIRTIO_MMIO_SHM_BASE_LOW:
+	case VIRTIO_MMIO_SHM_BASE_HIGH:
+	case VIRTIO_MMIO_SHM_LEN_LOW:
+	case VIRTIO_MMIO_SHM_LEN_HIGH:
+#endif
 		ioport__write32(data, *(u32 *)(((void *)&vmmio->hdr) + addr));
 		break;
 	case VIRTIO_MMIO_HOST_FEATURES:
@@ -222,6 +250,55 @@ static void virtio_mmio_config_out(struct kvm_cpu *vcpu,
 	};
 }
 
+#ifdef LKVM_PMM
+static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
+				   u64 addr, void *data, u32 len,
+				   struct virtio_device *vdev)
+{
+	struct virtio_mmio *vmmio = vdev->virtio;
+	struct kvm *kvm = vmmio->kvm;
+	u32 val = 0;
+    static int qidx = 0;
+    int i = 0;
+
+    if (vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK) {
+        for (i = 0; i < vmmio->num_vqs; i++) {
+            vdev->ops->notify_vq(vmmio->kvm, vmmio->dev, i);
+        }
+        return;
+    }
+
+    if ((vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER) && (!(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK))) {
+        if (vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) {
+            vmmio->hdr.queue_pfn = vmmio->static_hdr->queue_pfn;
+    		val = vmmio->static_hdr->queue_pfn;
+    		if (val) {
+    			virtio_mmio_init_ioeventfd(vmmio->kvm, vdev, qidx);
+    			vdev->ops->init_vq(vmmio->kvm, vmmio->dev,
+    					   vmmio->num_vqs,
+    					   vmmio->static_hdr->guest_page_size,
+    					   vmmio->static_hdr->queue_align,
+    					   val);
+                vmmio->num_vqs++;
+            } else {
+    			virtio_mmio_exit_vq(kvm, vdev, qidx);
+    		}
+        }
+    }
+
+    if (vmmio->static_hdr->status != vmmio->hdr.status) {
+        vmmio->hdr.status = vmmio->static_hdr->status;
+        if (!vmmio->hdr.status) /* Sample endianness on reset */
+			vdev->endian = kvm_cpu__get_endianness(vcpu);
+        virtio_notify_status(kvm, vdev, vmmio->dev, vmmio->hdr.status);
+    }
+    if (vmmio->static_hdr->interrupt_state != vmmio->hdr.interrupt_state) {
+        vmmio->hdr.interrupt_state &= ~vmmio->static_hdr->interrupt_state;
+        vmmio->static_hdr->interrupt_state = vmmio->hdr.interrupt_state;
+    }
+}
+#endif
+
 static void virtio_mmio_mmio_callback(struct kvm_cpu *vcpu,
 				      u64 addr, u8 *data, u32 len,
 				      u8 is_write, void *ptr)
@@ -229,6 +306,13 @@ static void virtio_mmio_mmio_callback(struct kvm_cpu *vcpu,
 	struct virtio_device *vdev = ptr;
 	struct virtio_mmio *vmmio = vdev->virtio;
 	u32 offset = addr - vmmio->addr;
+
+#ifdef LKVM_PMM
+    if ((offset == 0x1F0) && is_write) {
+        virtio_mmio_notification_out(vcpu, offset, data, len, ptr);
+        return;
+    }
+#endif
 
 	if (offset >= VIRTIO_MMIO_CONFIG) {
 		offset -= VIRTIO_MMIO_CONFIG;
@@ -285,6 +369,11 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 {
 	struct virtio_mmio *vmmio = vdev->virtio;
 	int r;
+#ifdef LKVM_PMM
+    u64 vmmio_shm_addr = 0;
+    u64 vmmio_shm_phys_addr = 0;
+    u64 vmmio_shm_size = 0x400000; //4MB
+#endif
 
 	vmmio->addr	= virtio_mmio_get_io_space_block(VIRTIO_MMIO_IO_SIZE);
 	vmmio->kvm	= kvm;
@@ -316,6 +405,36 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 		return r;
 	}
 
+#ifdef LKVM_PMM
+    vmmio_shm_phys_addr = virtio_mmio_get_shm_space_block(kvm, vmmio_shm_size);
+
+    vmmio_shm_addr = (u64)kvm->shmem_start + (vmmio_shm_phys_addr - kvm->cfg.hvl_shmem_phys_addr);
+    vmmio->hdr.shm_len_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_size);
+    vmmio->hdr.shm_len_high = virtio_host_to_guest_u32(vdev, vmmio_shm_size >> 32);
+    vmmio->hdr.shm_base_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_phys_addr);
+    vmmio->hdr.shm_base_high = virtio_host_to_guest_u32(vdev, vmmio_shm_phys_addr >> 32);
+
+    memcpy((void *)vmmio_shm_addr, &vmmio->hdr, sizeof(struct virtio_mmio_hdr));
+    vmmio->static_hdr = (struct virtio_mmio_hdr *)vmmio_shm_addr;
+    vmmio->static_hdr->guest_page_size = 0x1000;
+    vmmio->static_hdr->queue_align = 0x1000;
+    vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
+    vmmio->static_hdr->queue_num_max = vdev->ops->get_size_vq(vmmio->kvm, vmmio->dev, 0);
+    vmmio->hdr.guest_page_size = 0x1000;
+    vmmio->hdr.host_features = vmmio->static_hdr->host_features;
+    vmmio->hdr.queue_num_max = vmmio->static_hdr->queue_num_max;
+    vmmio->hdr.queue_align = vmmio->static_hdr->queue_align;
+
+    if (vdev->ops->get_config_size) {
+        int config_size = vdev->ops->get_config_size(vmmio->kvm, vmmio->dev);
+        u8 *devcfg  = (u8 *)(vmmio_shm_addr + VIRTIO_MMIO_CONFIG);
+        int i;
+    	for (i = 0; i < config_size; i++) {
+            devcfg[i] = vdev->ops->get_config(vmmio->kvm,
+    							vmmio->dev)[i];
+    	}
+    }
+#endif
 	/*
 	 * Instantiate guest virtio-mmio devices using kernel command line
 	 * (or module) parameter, e.g

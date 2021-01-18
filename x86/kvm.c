@@ -116,6 +116,12 @@ void kvm__init_ram(struct kvm *kvm)
 
 		kvm__register_ram(kvm, phys_start, phys_size, host_mem);
 	}
+
+#ifdef LKVM_PMM
+    if (kvm->cfg.hvl_shmem_phys_addr != 0) {
+        kvm__register_ram(kvm, kvm->cfg.hvl_shmem_phys_addr, kvm->shmem_size, kvm->shmem_start);
+    }
+#endif
 }
 
 /* Arch-specific commandline setup */
@@ -164,6 +170,14 @@ void kvm__arch_init(struct kvm *kvm, const char *hugetlbfs_path, u64 ram_size)
 	ret = ioctl(kvm->vm_fd, KVM_CREATE_IRQCHIP);
 	if (ret < 0)
 		die_perror("KVM_CREATE_IRQCHIP ioctl");
+#ifdef LKVM_PMM
+	if (kvm->cfg.hvl_shmem_size != 0) {
+		kvm->shmem_start = mmap_anon_or_hugetlbfs(kvm, hugetlbfs_path, kvm->cfg.hvl_shmem_size);
+		if (kvm->shmem_start == MAP_FAILED)
+			die("[SHM] out of memory");
+	}
+    kvm->shmem_size = kvm->cfg.hvl_shmem_size;
+#endif
 }
 
 void kvm__arch_delete_ram(struct kvm *kvm)

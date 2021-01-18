@@ -91,6 +91,10 @@ struct kvm {
 #ifdef KVM_BRLOCK_DEBUG
 	pthread_rwlock_t	brlock_sem;
 #endif
+#ifdef LKVM_PMM
+	u64			shmem_size;
+	void			*shmem_start;
+#endif
 };
 
 void kvm__set_dir(const char *fmt, ...);

@@ -179,6 +179,20 @@ bool kvm__emulate_mmio(struct kvm_cpu *vcpu, u64 phys_addr, u8 *data, u32 len, u
 {
 	struct mmio_mapping *mmio;
 
+#ifdef LKVM_PMM
+    if (phys_addr == 0xe0000000) {
+        //custom notification
+        u64 pa = KVM_VIRTIO_MMIO_AREA;
+
+        //process all mmio regions for shared memory devices -> start with KVM_VIRTIO_MMIO_AREA
+        while ((mmio = mmio_get(&mmio_tree, pa, len))) {
+            mmio->mmio_fn(vcpu, pa + 0x1f0, data, len, is_write, mmio->ptr);
+            mmio_put(vcpu->kvm, &mmio_tree, mmio);
+            pa += 0x200;
+        }
+        goto out;
+    }
+#endif
 	mmio = mmio_get(&mmio_tree, phys_addr, len);
 	if (!mmio) {
 		if (vcpu->kvm->cfg.mmio_debug)

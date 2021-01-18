@@ -95,6 +95,14 @@
 /* Device status register - Read Write */
 #define VIRTIO_MMIO_STATUS		0x070
 
+#ifdef LKVM_PMM
+#define	VIRTIO_MMIO_SHM_SEL     	0x0ac
+#define	VIRTIO_MMIO_SHM_LEN_LOW 	0x0b0
+#define	VIRTIO_MMIO_SHM_LEN_HIGH	0x0b4
+#define	VIRTIO_MMIO_SHM_BASE_LOW	0x0b8
+#define	VIRTIO_MMIO_SHM_BASE_HIGH	0x0bc
+#endif
+
 /* The config space is defined by each driver as
  * the per-driver configuration space - Read Write */
 #define VIRTIO_MMIO_CONFIG		0x100

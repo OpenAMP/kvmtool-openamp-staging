@@ -1367,6 +1367,10 @@ static void virtio_p9_do_io(struct kvm *kvm, void *param)
 	while (virt_queue__available(vq)) {
 		virtio_p9_do_io_request(kvm, job);
 		p9dev->vdev.ops->signal_vq(kvm, &p9dev->vdev, vq - p9dev->vqs);
+#ifdef LKVM_PMM
+        if (kvm->cfg.pmm)
+            kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
+#endif
 	}
 }
 
@@ -1376,6 +1380,15 @@ static u8 *get_config(struct kvm *kvm, void *dev)
 
 	return ((u8 *)(p9dev->config));
 }
+
+#ifdef LKVM_PMM
+static u32 get_config_size(struct kvm *kvm, void *dev)
+{
+	struct p9_dev *p9dev = dev;
+
+	return (p9dev->config_size);
+}
+#endif
 
 static u32 get_host_features(struct kvm *kvm, void *dev)
 {
@@ -1471,6 +1484,9 @@ static int get_vq_count(struct kvm *kvm, void *dev)
 
 struct virtio_ops p9_dev_virtio_ops = {
 	.get_config		= get_config,
+#ifdef LKVM_PMM
+	.get_config_size	= get_config_size,
+#endif
 	.get_host_features	= get_host_features,
 	.set_guest_features	= set_guest_features,
 	.init_vq		= init_vq,
@@ -1554,10 +1570,19 @@ int virtio_9p__init(struct kvm *kvm)
 {
 	struct p9_dev *p9dev;
 	int r;
+    enum virtio_trans trans = VIRTIO_DEFAULT_TRANS(kvm);
+#ifdef LKVM_PMM
+    if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
+        trans = VIRTIO_MMIO;
+    }
 
+    if (strncmp(kvm->cfg.transport, "pci", 3) == 0) {
+        trans = VIRTIO_PCI;
+    }
+#endif
 	list_for_each_entry(p9dev, &devs, list) {
 		r = virtio_init(kvm, p9dev, &p9dev->vdev, &p9_dev_virtio_ops,
-				VIRTIO_DEFAULT_TRANS(kvm), PCI_DEVICE_ID_VIRTIO_9P,
+				trans, PCI_DEVICE_ID_VIRTIO_9P,
 				VIRTIO_ID_9P, PCI_CLASS_9P);
 		if (r < 0)
 			return r;
@@ -1584,7 +1609,9 @@ int virtio_9p__register(struct kvm *kvm, const char *root, const char *tag_name)
 		err = -ENOMEM;
 		goto free_p9dev;
 	}
-
+#ifdef LKVM_PMM
+    p9dev->config_size = sizeof(*p9dev->config) + strlen(tag_name) + 1;
+#endif
 	strncpy(p9dev->root_dir, root, sizeof(p9dev->root_dir));
 	p9dev->root_dir[sizeof(p9dev->root_dir)-1] = '\x00';
 

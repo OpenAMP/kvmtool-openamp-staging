@@ -45,6 +45,9 @@ struct p9_dev {
 	struct rb_root		fids;
 
 	struct virtio_9p_config	*config;
+#ifdef LKVM_PMM
+    u32			config_size;
+#endif
 	u32			features;
 
 	/* virtio queue */

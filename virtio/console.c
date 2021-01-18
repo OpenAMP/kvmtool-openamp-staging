@@ -74,6 +74,11 @@ static void virtio_console__inject_interrupt_callback(struct kvm *kvm, void *par
 		len = term_getc_iov(kvm, iov, in, 0);
 		virt_queue__set_used_elem(vq, head, len);
 		cdev.vdev.ops->signal_vq(kvm, &cdev.vdev, vq - cdev.vqs);
+#ifdef LKVM_PMM
+		if (kvm->cfg.pmm) {
+			kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
+        }
+#endif
 	}
 
 	mutex_unlock(&cdev.mutex);
@@ -231,12 +236,23 @@ static struct virtio_ops con_dev_virtio_ops = {
 int virtio_console__init(struct kvm *kvm)
 {
 	int r;
+    enum virtio_trans trans = VIRTIO_DEFAULT_TRANS(kvm);
 
 	if (kvm->cfg.active_console != CONSOLE_VIRTIO)
 		return 0;
 
+#ifdef LKVM_PMM
+    if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
+        trans = VIRTIO_MMIO;
+    }
+
+    if (strncmp(kvm->cfg.transport, "pci", 3) == 0) {
+        trans = VIRTIO_PCI;
+    }
+#endif
+
 	r = virtio_init(kvm, &cdev, &cdev.vdev, &con_dev_virtio_ops,
-			VIRTIO_DEFAULT_TRANS(kvm), PCI_DEVICE_ID_VIRTIO_CONSOLE,
+			trans, PCI_DEVICE_ID_VIRTIO_CONSOLE,
 			VIRTIO_ID_CONSOLE, PCI_CLASS_CONSOLE);
 	if (r < 0)
 		return r;

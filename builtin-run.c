@@ -90,6 +90,23 @@ void kvm_run_set_wrapper_sandbox(void)
 #define OPT_ARCH_RUN(...)
 #endif
 
+#ifdef LKVM_PMM
+#define OPT_PMM(cmd, cfg) OPT_PMM_##cmd(cfg)
+
+#define OPT_PMM_RUN(cfg)  \
+	OPT_GROUP("PMM options:"),					\
+    OPT_INTEGER('\0', "irq", &(cfg)->hvl_irq, "HVL IRQ"),	\
+	OPT_BOOLEAN('\0', "pmm", &(cfg)->pmm,	\
+			"Run in PMM mode"),		\
+    OPT_STRING('\0', "transport", &(cfg)->transport, "transport",\
+			"virtio transport: mmio, pci"),	\
+	OPT_U64('\0', "shmem-addr", &(cfg)->hvl_shmem_phys_addr, "HVL shared memory "	\
+		" physical address."),					\
+	OPT_U64('\0', "shmem-size", &(cfg)->hvl_shmem_size, "HVL shared memory size."),
+#else
+#define OPT_PMM(...)
+#endif
+
 #define BUILD_OPTIONS(name, cfg, kvm)					\
 	struct option name[] = {					\
 	OPT_GROUP("Basic options:"),					\
@@ -163,6 +180,7 @@ void kvm_run_set_wrapper_sandbox(void)
 	OPT_BOOLEAN('\0', "debug-nohostfs", &(cfg)->nohostfs_debug,	\
 			"Don't attach 9p host file system"),		\
 									\
+    OPT_PMM(RUN, cfg)                    \
 	OPT_ARCH(RUN, cfg)						\
 	OPT_END()							\
 	};
@@ -614,12 +632,14 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 
 		snprintf(tmp, PATH_MAX, "%s%s", kvm__get_dir(), "default");
 
+#ifndef LKVM_PMM
 		if (virtio_9p__register(kvm, tmp, "/dev/root") < 0)
 			die("Unable to initialize virtio 9p");
 		if (!kvm->cfg.nohostfs_debug) {
 			if (virtio_9p__register(kvm, "/", "hostfs") < 0)
 				die("Unable to initialize virtio 9p");
 		}
+#endif
 		kvm->cfg.using_rootfs = kvm->cfg.custom_rootfs = 1;
 	}
 
@@ -665,6 +685,12 @@ do {} while (0);
 		       (unsigned long long)kvm->cfg.ram_size / 1024 / 1024,
 		       kvm->cfg.nrcpus, kvm->cfg.guest_name);
 	}
+
+#ifdef LKVM_PMM
+    if (!kvm->cfg.transport) {
+        kvm->cfg.transport = "";
+    }
+#endif
 
 	if (init_list__init(kvm) < 0)
 		die ("Initialisation failed");
