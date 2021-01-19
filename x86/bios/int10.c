@@ -37,9 +37,9 @@ static void vbe_get_mode(struct biosregs *args)
 
 	*info = (struct vesa_mode_info) {
 		.mode_attr		= 0xd9, /* 11011011 */
-		.logical_scan		= VESA_WIDTH*4,
-		.h_res			= VESA_WIDTH,
-		.v_res			= VESA_HEIGHT,
+		.logical_scan		= _VESA_WIDTH*4,
+		.h_res			= _VESA_WIDTH,
+		.v_res			= _VESA_HEIGHT,
 		.bpp			= VESA_BPP,
 		.memory_layout		= 6,
 		.memory_planes		= 1,
@@ -65,7 +65,7 @@ static void vbe_get_info(struct biosregs *args)
 		.vendor_string		= gen_far_ptr(VGA_ROM_BEGIN),
 		.capabilities		= 0x10,
 		.video_mode_ptr		= gen_far_ptr(VGA_ROM_MODES),
-		.total_memory		= (4 * VESA_WIDTH * VESA_HEIGHT) / 0x10000,
+		.total_memory		= (4 * _VESA_WIDTH * _VESA_HEIGHT) / 0x10000,
 	};
 
 	memcpy16(args->es, infop, args->ds, &info, sizeof(info));
