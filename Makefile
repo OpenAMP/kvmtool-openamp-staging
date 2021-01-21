@@ -136,6 +136,7 @@ ifeq ($(ARCH),x86)
 	OTHEROBJS	+= x86/bios/bios-rom.o
 	ARCH_INCLUDE := x86/include
 	ARCH_HAS_FRAMEBUFFER := y
+	ARCH_WANT_LIBFDT := y
 endif
 # POWER/ppc:  Actually only support ppc64 currently.
 ifeq ($(ARCH), powerpc)

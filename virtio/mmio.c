@@ -23,12 +23,13 @@ static u32 virtio_mmio_get_io_space_block(u32 size)
 
 #ifdef LKVM_PMM
 static u64 virtio_mmio_shm_space_blocks;
+static u64 virtio_mmio_shm_dtb_offset = FDT_MAX_SIZE;
 static u64 virtio_mmio_get_shm_space_block(struct kvm *kvm, u32 size)
 {
     u64 block;
 
     if (virtio_mmio_shm_space_blocks == 0) {
-        virtio_mmio_shm_space_blocks = kvm->cfg.hvl_shmem_phys_addr;
+        virtio_mmio_shm_space_blocks = kvm->cfg.hvl_shmem_phys_addr + virtio_mmio_shm_dtb_offset;
     }
     block = virtio_mmio_shm_space_blocks;
 	virtio_mmio_shm_space_blocks += size;
@@ -340,6 +341,10 @@ void generate_virtio_mmio_fdt_node(void *fdt,
 						 struct virtio_mmio,
 						 dev_hdr);
 	u64 addr = vmmio->addr;
+#ifdef LKVM_PMM
+    addr = (((u64)vmmio->static_hdr->shm_base_high) << 32) | vmmio->static_hdr->shm_base_low;
+#endif
+
 	u64 reg_prop[] = {
 		cpu_to_fdt64(addr),
 		cpu_to_fdt64(VIRTIO_MMIO_IO_SIZE),
@@ -467,3 +472,65 @@ int virtio_mmio_exit(struct kvm *kvm, struct virtio_device *vdev)
 
 	return 0;
 }
+
+static void dump_fdt(const char *dtb_file, void *fdt)
+{
+	int count, fd;
+
+	fd = open(dtb_file, O_CREAT | O_TRUNC | O_RDWR, 0666);
+	if (fd < 0)
+		die("Failed to write dtb to %s", dtb_file);
+
+	count = write(fd, fdt, FDT_MAX_SIZE);
+	if (count < 0)
+		die_perror("Failed to dump dtb");
+
+	pr_debug("Wrote %d bytes to dtb %s", count, dtb_file);
+	close(fd);
+}
+
+static void generate_irq_prop_stub(void *fdt, u8 irq, enum irq_type irqt)
+{
+	return;
+}
+
+static int setup_virtio_mmio_fdt(struct kvm *kvm)
+{
+	struct device_header *dev_hdr;
+	u8 staging_fdt[FDT_MAX_SIZE];
+	u8 *pdest;
+	void *fdt = staging_fdt;
+	void (*generate_mmio_fdt_nodes)(void *, struct device_header *,
+					void (*)(void *, u8, enum irq_type));
+
+	/* Create new tree without a reserve map */
+	_FDT(fdt_create(fdt, FDT_MAX_SIZE));
+	_FDT(fdt_finish_reservemap(fdt));
+
+	/* Header */
+	_FDT(fdt_begin_node(fdt, ""));
+	_FDT(fdt_property_cell(fdt, "#address-cells", 0x2));
+	_FDT(fdt_property_cell(fdt, "#size-cells", 0x2));
+
+	/* Virtio MMIO devices */
+	dev_hdr = device__first_dev(DEVICE_BUS_MMIO);
+	while (dev_hdr) {
+		generate_mmio_fdt_nodes = dev_hdr->data;
+		generate_mmio_fdt_nodes(fdt, dev_hdr, generate_irq_prop_stub);
+		dev_hdr = device__next_dev(dev_hdr);
+	}
+
+	/* Finalise. */
+	_FDT(fdt_end_node(fdt));
+	_FDT(fdt_finish(fdt));
+
+	pdest = kvm->shmem_start;
+	_FDT(fdt_open_into(fdt, pdest, FDT_MAX_SIZE));
+	_FDT(fdt_pack(pdest));
+
+	if (kvm->cfg.arch.dump_dtb_filename)
+		dump_fdt(kvm->cfg.arch.dump_dtb_filename, pdest);
+
+	return 0;
+}
+late_init(setup_virtio_mmio_fdt);
