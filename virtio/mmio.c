@@ -524,12 +524,14 @@ static int setup_virtio_mmio_fdt(struct kvm *kvm)
 	_FDT(fdt_end_node(fdt));
 	_FDT(fdt_finish(fdt));
 
-	pdest = kvm->shmem_start;
-	_FDT(fdt_open_into(fdt, pdest, FDT_MAX_SIZE));
-	_FDT(fdt_pack(pdest));
+	if (kvm->shmem_start != 0) {
+		pdest = kvm->shmem_start;
+		_FDT(fdt_open_into(fdt, pdest, FDT_MAX_SIZE));
+		_FDT(fdt_pack(pdest));
 
-	if (kvm->cfg.arch.dump_dtb_filename)
-		dump_fdt(kvm->cfg.arch.dump_dtb_filename, pdest);
+		if (kvm->cfg.arch.dump_dtb_filename)
+			dump_fdt(kvm->cfg.arch.dump_dtb_filename, pdest);
+	}
 
 	return 0;
 }
