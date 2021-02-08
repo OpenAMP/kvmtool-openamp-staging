@@ -473,6 +473,7 @@ int virtio_mmio_exit(struct kvm *kvm, struct virtio_device *vdev)
 	return 0;
 }
 
+#ifdef LKVM_PMM
 static void dump_fdt(const char *dtb_file, void *fdt)
 {
 	int count, fd;
@@ -523,7 +524,6 @@ static int setup_virtio_mmio_fdt(struct kvm *kvm)
 	/* Finalise. */
 	_FDT(fdt_end_node(fdt));
 	_FDT(fdt_finish(fdt));
-
 	if (kvm->shmem_start != 0) {
 		pdest = kvm->shmem_start;
 		_FDT(fdt_open_into(fdt, pdest, FDT_MAX_SIZE));
@@ -532,7 +532,7 @@ static int setup_virtio_mmio_fdt(struct kvm *kvm)
 		if (kvm->cfg.arch.dump_dtb_filename)
 			dump_fdt(kvm->cfg.arch.dump_dtb_filename, pdest);
 	}
-
 	return 0;
 }
 late_init(setup_virtio_mmio_fdt);
+#endif

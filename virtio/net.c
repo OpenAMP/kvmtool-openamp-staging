@@ -980,9 +980,9 @@ static int virtio_net__init_one(struct virtio_net_params *params)
 				   "falling back to %s.", params->trans,
 				   virtio_trans_name(trans));
 	}
-
+#ifdef LKVM_PMM
 	ndev->config_size = sizeof(struct virtio_net_config);
-
+#endif
 	r = virtio_init(params->kvm, ndev, &ndev->vdev, ops, trans,
 			PCI_DEVICE_ID_VIRTIO_NET, VIRTIO_ID_NET, PCI_CLASS_NET);
 	if (r < 0) {
