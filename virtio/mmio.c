@@ -92,9 +92,15 @@ int virtio_mmio_signal_vq(struct kvm *kvm, struct virtio_device *vdev, u32 vq)
 
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_VRING;
 #ifdef LKVM_PMM
-    vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
+	vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
+	if (kvm->cfg.pmm) {
+		kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
+	} else {
 #endif
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
+#ifdef LKVM_PMM
+	}
+#endif
 
 	return 0;
 }
@@ -270,6 +276,9 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
     }
 
     if ((vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER) && (!(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK))) {
+        if (vmmio->static_hdr->queue_sel != vmmio->hdr.queue_sel) {
+			vmmio->hdr.queue_sel = vmmio->static_hdr->queue_sel;
+        }
         if (vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) {
             vmmio->hdr.queue_pfn = vmmio->static_hdr->queue_pfn;
     		val = vmmio->static_hdr->queue_pfn;
