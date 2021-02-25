@@ -153,6 +153,8 @@ void kvm_run_set_wrapper_sandbox(void)
 			"Firmware image to boot in virtual machine"),	\
 	OPT_STRING('F', "flash", &(cfg)->flash_filename, "flash",\
 			"Flash image to present to virtual machine"),	\
+	OPT_BOOLEAN('v', "vxworks", &(cfg)->vxworks_kernel,		\
+			"Assume a VxWorks kernel"),			\
 									\
 	OPT_GROUP("Networking options:"),				\
 	OPT_CALLBACK_DEFAULT('n', "network", NULL, "network params",	\

@@ -230,7 +230,8 @@ int kvm_cpu__start(struct kvm_cpu *cpu)
 	kvm_cpu__reset_vcpu(cpu);
 
 #if defined(CONFIG_X86)
-	vxworks_hack (cpu->kvm);
+	if (cpu->kvm->cfg.vxworks_kernel)
+		vxworks_hack (cpu->kvm);
 #endif
 
 	if (cpu->kvm->cfg.single_step)
