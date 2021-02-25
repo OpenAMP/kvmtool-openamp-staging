@@ -64,9 +64,9 @@ struct kvm_config {
 	bool mmio_debug;
 	bool nohostfs_debug;
 	bool vxworks_kernel;
-#ifdef LKVM_PMM
+#ifdef RSLD
     const char *transport;
-    bool pmm;
+    bool rsld;
     int hvl_irq;
     u64 hvl_shmem_phys_addr;
     u64 hvl_shmem_size;

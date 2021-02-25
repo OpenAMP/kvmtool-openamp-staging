@@ -55,7 +55,7 @@ struct net_dev {
 
 	struct net_dev_queue		queues[VIRTIO_NET_NUM_QUEUES * 2 + 1];
 	struct virtio_net_config	config;
-#ifdef LKVM_PMM
+#ifdef RSLD
 	u32			config_size;
 #endif
 	u32				features, queue_pairs;
@@ -758,7 +758,7 @@ static int get_vq_count(struct kvm *kvm, void *dev)
 	return ndev->queue_pairs * 2 + 1;
 }
 
-#ifdef LKVM_PMM
+#ifdef RSLD
 static u32 get_config_size(struct kvm *kvm, void *dev)
 {
 	struct net_dev *ndev = dev;
@@ -768,7 +768,7 @@ static u32 get_config_size(struct kvm *kvm, void *dev)
 
 static struct virtio_ops net_dev_virtio_ops = {
 	.get_config		= get_config,
-#ifdef LKVM_PMM
+#ifdef RSLD
 	.get_config_size	= get_config_size,
 #endif
 	.get_host_features	= get_host_features,
@@ -980,7 +980,7 @@ static int virtio_net__init_one(struct virtio_net_params *params)
 				   "falling back to %s.", params->trans,
 				   virtio_trans_name(trans));
 	}
-#ifdef LKVM_PMM
+#ifdef RSLD
 	ndev->config_size = sizeof(struct virtio_net_config);
 #endif
 	r = virtio_init(params->kvm, ndev, &ndev->vdev, ops, trans,

@@ -91,7 +91,7 @@ struct kvm {
 #ifdef KVM_BRLOCK_DEBUG
 	pthread_rwlock_t	brlock_sem;
 #endif
-#ifdef LKVM_PMM
+#ifdef RSLD
 	u64			shmem_size;
 	void			*shmem_start;
 #endif

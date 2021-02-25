@@ -95,7 +95,7 @@
 /* Device status register - Read Write */
 #define VIRTIO_MMIO_STATUS		0x070
 
-#ifdef LKVM_PMM
+#ifdef RSLD
 #define	VIRTIO_MMIO_SHM_SEL     	0x0ac
 #define	VIRTIO_MMIO_SHM_LEN_LOW 	0x0b0
 #define	VIRTIO_MMIO_SHM_LEN_HIGH	0x0b4

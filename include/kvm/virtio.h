@@ -184,7 +184,7 @@ struct virtio_device {
 
 struct virtio_ops {
 	u8 *(*get_config)(struct kvm *kvm, void *dev);
-#ifdef LKVM_PMM
+#ifdef RSLD
     u32 (*get_config_size)(struct kvm *kvm, void *dev);
 #endif
 	u32 (*get_host_features)(struct kvm *kvm, void *dev);

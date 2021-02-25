@@ -21,7 +21,7 @@ static u32 virtio_mmio_get_io_space_block(u32 size)
 	return block;
 }
 
-#ifdef LKVM_PMM
+#ifdef RSLD
 static u64 virtio_mmio_shm_space_blocks;
 static u64 virtio_mmio_shm_dtb_offset = FDT_MAX_SIZE;
 static u64 virtio_mmio_get_shm_space_block(struct kvm *kvm, u32 size)
@@ -91,14 +91,14 @@ int virtio_mmio_signal_vq(struct kvm *kvm, struct virtio_device *vdev, u32 vq)
 	struct virtio_mmio *vmmio = vdev->virtio;
 
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_VRING;
-#ifdef LKVM_PMM
+#ifdef RSLD
 	vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
-	if (kvm->cfg.pmm) {
+	if (kvm->cfg.rsld) {
 		kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
 	} else {
 #endif
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
-#ifdef LKVM_PMM
+#ifdef RSLD
 	}
 #endif
 
@@ -119,7 +119,7 @@ int virtio_mmio_signal_config(struct kvm *kvm, struct virtio_device *vdev)
 	struct virtio_mmio *vmmio = vdev->virtio;
 
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_CONFIG;
-#ifdef LKVM_PMM
+#ifdef RSLD
     vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_CONFIG;
 #endif
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
@@ -159,7 +159,7 @@ static void virtio_mmio_config_in(struct kvm_cpu *vcpu,
 	case VIRTIO_MMIO_VENDOR_ID:
 	case VIRTIO_MMIO_STATUS:
 	case VIRTIO_MMIO_INTERRUPT_STATUS:
-#ifdef LKVM_PMM
+#ifdef RSLD
 	case VIRTIO_MMIO_SHM_BASE_LOW:
 	case VIRTIO_MMIO_SHM_BASE_HIGH:
 	case VIRTIO_MMIO_SHM_LEN_LOW:
@@ -257,7 +257,7 @@ static void virtio_mmio_config_out(struct kvm_cpu *vcpu,
 	};
 }
 
-#ifdef LKVM_PMM
+#ifdef RSLD
 static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
 				   u64 addr, void *data, u32 len,
 				   struct virtio_device *vdev)
@@ -317,7 +317,7 @@ static void virtio_mmio_mmio_callback(struct kvm_cpu *vcpu,
 	struct virtio_mmio *vmmio = vdev->virtio;
 	u32 offset = addr - vmmio->addr;
 
-#ifdef LKVM_PMM
+#ifdef RSLD
     if ((offset == 0x1F0) && is_write) {
         virtio_mmio_notification_out(vcpu, offset, data, len, ptr);
         return;
@@ -350,7 +350,7 @@ void generate_virtio_mmio_fdt_node(void *fdt,
 						 struct virtio_mmio,
 						 dev_hdr);
 	u64 addr = vmmio->addr;
-#ifdef LKVM_PMM
+#ifdef RSLD
     addr = (((u64)vmmio->static_hdr->shm_base_high) << 32) | vmmio->static_hdr->shm_base_low;
 #endif
 
@@ -383,7 +383,7 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 {
 	struct virtio_mmio *vmmio = vdev->virtio;
 	int r;
-#ifdef LKVM_PMM
+#ifdef RSLD
     u64 vmmio_shm_addr = 0;
     u64 vmmio_shm_phys_addr = 0;
     u64 vmmio_shm_size = 0x400000; //4MB
@@ -419,7 +419,7 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 		return r;
 	}
 
-#ifdef LKVM_PMM
+#ifdef RSLD
     vmmio_shm_phys_addr = virtio_mmio_get_shm_space_block(kvm, vmmio_shm_size);
 
     vmmio_shm_addr = (u64)kvm->shmem_start + (vmmio_shm_phys_addr - kvm->cfg.hvl_shmem_phys_addr);
@@ -482,7 +482,7 @@ int virtio_mmio_exit(struct kvm *kvm, struct virtio_device *vdev)
 	return 0;
 }
 
-#ifdef LKVM_PMM
+#ifdef RSLD
 static void dump_fdt(const char *dtb_file, void *fdt)
 {
 	int count, fd;

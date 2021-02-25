@@ -179,7 +179,7 @@ bool kvm__emulate_mmio(struct kvm_cpu *vcpu, u64 phys_addr, u8 *data, u32 len, u
 {
 	struct mmio_mapping *mmio;
 
-#ifdef LKVM_PMM
+#ifdef RSLD
     if (phys_addr == 0xe0000000) {
         //custom notification
         u64 pa = KVM_VIRTIO_MMIO_AREA;

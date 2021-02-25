@@ -39,7 +39,7 @@ struct virtio_mmio_hdr {
 	u32	interrupt_ack;
 	u32	reserved_5[2];
 	u32	status;
-#ifdef LKVM_PMM
+#ifdef RSLD
 	u32	reserved_6[14];
 	u32	shm_sel;
 	u32	shm_len_low;
@@ -56,7 +56,7 @@ struct virtio_mmio {
 	u8			irq;
 	struct virtio_mmio_hdr	hdr;
 	struct device_header	dev_hdr;
-#ifdef LKVM_PMM
+#ifdef RSLD
 	struct virtio_mmio_hdr	*static_hdr;
     u8 num_vqs;
 #endif

@@ -74,8 +74,8 @@ static void virtio_console__inject_interrupt_callback(struct kvm *kvm, void *par
 		len = term_getc_iov(kvm, iov, in, 0);
 		virt_queue__set_used_elem(vq, head, len);
 		cdev.vdev.ops->signal_vq(kvm, &cdev.vdev, vq - cdev.vqs);
-#ifdef LKVM_PMM
-		if (kvm->cfg.pmm) {
+#ifdef RSLD
+		if (kvm->cfg.rsld) {
 			kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
         }
 #endif
@@ -241,7 +241,7 @@ int virtio_console__init(struct kvm *kvm)
 	if (kvm->cfg.active_console != CONSOLE_VIRTIO)
 		return 0;
 
-#ifdef LKVM_PMM
+#ifdef RSLD
     if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
         trans = VIRTIO_MMIO;
     }

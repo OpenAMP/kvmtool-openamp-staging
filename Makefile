@@ -200,6 +200,8 @@ ifeq (,$(ARCH_INCLUDE))
         $(error This architecture ($(ARCH)) is not supported in kvmtool)
 endif
 
+RSLD = 1
+
 ###
 
 # Detect optional features.
@@ -379,8 +381,8 @@ WARNINGS += -Wno-format-nonliteral
 
 CFLAGS	+= $(WARNINGS)
 
-ifeq ($(LKVM_PMM),1)
-	CFLAGS += -DLKVM_PMM=1
+ifeq ($(RSLD),1)
+	CFLAGS += -DRSLD=1
 endif
 
 ifneq ($(WERROR),0)
