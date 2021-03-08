@@ -5,6 +5,11 @@ kvmtool is a lightweight tool for hosting KVM guests. As a pure virtualization
 tool it only supports guests using the same architecture, though it supports
 running 32-bit guests on those 64-bit architectures that allow this.
 
+Hypervissor-less virtio
+-----------------------
+
+See README_RSL.md for details on the hypervisor-less virtio mode of operation.
+
 From the original announcement email:
 -------------------------------------------------------
 The goal of this tool is to provide a clean, from-scratch, lightweight
