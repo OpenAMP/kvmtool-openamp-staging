@@ -513,8 +513,12 @@ static u32 get_host_features(struct kvm *kvm, void *dev)
 
 static int virtio_net__vhost_set_features(struct net_dev *ndev)
 {
-	u64 features = 1UL << VIRTIO_RING_F_EVENT_IDX;
+	u64 features = 0;
 	u64 vhost_features;
+
+	if (ndev->features & VIRTIO_RING_F_EVENT_IDX) {
+		features |= 1UL << VIRTIO_RING_F_EVENT_IDX;
+	}
 
 	if (ioctl(ndev->vhost_fd, VHOST_GET_FEATURES, &vhost_features) != 0)
 		die_perror("VHOST_GET_FEATURES failed");
