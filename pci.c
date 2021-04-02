@@ -409,6 +409,12 @@ void pci__config_wr(struct kvm *kvm, union pci_config_address addr, void *data, 
 	if (*(u32 *)(base + offset) == 0)
 		return;
 
+	/*
+	 * ignore writes to the PCI STATUS register
+	 */
+	if (offset == PCI_STATUS)
+		return;
+
 	if (offset == PCI_COMMAND) {
 		memcpy(&value, data, size);
 		pci_config_command_wr(kvm, pci_hdr, (u16)value);
@@ -419,6 +425,16 @@ void pci__config_wr(struct kvm *kvm, union pci_config_address addr, void *data, 
 	if (bar < 6) {
 		memcpy(&value, data, size);
 		pci_config_bar_wr(kvm, pci_hdr, bar, value);
+		return;
+	}
+
+	/*
+	 * limit writes to the MSIX Message Control register to writable bits
+	 */
+	if (offset == (offsetof(struct pci_device_header, msix) + offsetof(struct msix_cap, ctrl))) {
+		memcpy(&value, base + offset, size);
+		value = (*(u16 *)data & (3 << 14)) | (value & ~(3 << 14));
+		memcpy(base + offset, &value, size);
 		return;
 	}
 
