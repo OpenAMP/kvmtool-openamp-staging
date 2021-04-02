@@ -12,6 +12,7 @@
 #include "kvm/virtio-blk.h"
 #include "kvm/virtio-net.h"
 #include "kvm/virtio-rng.h"
+#include "kvm/virtio-vsock.h"
 #include "kvm/ioeventfd.h"
 #include "kvm/virtio-9p.h"
 #include "kvm/barrier.h"
@@ -131,6 +132,8 @@ void kvm_run_set_wrapper_sandbox(void)
 		     " guest", virtio_9p_rootdir_parser, kvm),		\
 	OPT_STRING('\0', "console", &(cfg)->console, "serial, virtio or"\
 			" hv", "Console to use"),			\
+	OPT_U64('\0', "vsock", &(cfg)->guest_cid, "Use vsockets"	\
+		" <cid for quest>"),				\
 	OPT_STRING('\0', "dev", &(cfg)->dev, "device_file",		\
 			"KVM device file"),				\
 	OPT_CALLBACK('\0', "tty", NULL, "tty id",			\
