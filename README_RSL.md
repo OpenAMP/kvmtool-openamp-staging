@@ -52,3 +52,15 @@ Notes:
 --vproxy enables notification indirection between the PMM and vhost_net and vhost_vsock to allow the PMM to make use of the host's AF_VSOCK support for example.
 
 Currently the following virtio devices can operate in hypervisor-less mode: 9p, console, virtio network, virtio vsock.
+
+For example a deployment with VxWorks which enables the virtio frontends for virtio-net, vsock, both with vhost offloading, and virtio console, can be instantiated with the following parameters:
+
+lkvm run --debug-nohostfs --cpus 1 --mem 2048 \
+--console virtio \
+--irq 12 --rsld --transport mmio \
+--shmem-addr 0xd4000000 --shmem-size 0x1000000 \
+--network mode=tap,tapif=tap0,trans=mmio,vhost=1 \
+--vproxy --vsock 3 \
+-p "fs(0,0):/rsl/hello h=192.168.200.254 e=192.168.200.2 u=ftp pw=ftp o=virtioNet;;hello r=;;hvl.irq=12;;hvl.shm_addr=0xd4000000 f=0x400 tn=hello" \
+--kernel vxWorks_lpc
+
