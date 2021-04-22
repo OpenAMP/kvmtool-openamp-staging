@@ -71,6 +71,7 @@ struct kvm_config {
     int hvl_irq;
     u64 hvl_shmem_phys_addr;
     u64 hvl_shmem_size;
+    bool vproxy;
 #endif
 };
 

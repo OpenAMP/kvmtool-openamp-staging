@@ -14,7 +14,12 @@
 #include "kvm/virtio.h"
 #include "kvm/virtio-pci-dev.h"
 #include "kvm/util.h"
-
+#ifdef RSLD
+#include "kvm/ioeventfd.h"
+#include "kvm/irq.h"
+#include "kvm/virtio-pci.h"
+#include "kvm/virtio-mmio.h"
+#endif
 #define VIRTIO_VSOCK_QUEUE_SIZE 256
 #define VIRTIO_VSOCK_NUM_QUEUES 3
 
@@ -25,14 +30,25 @@ struct virtio_vsock_config {
 	u64 guest_cid;
 };
 
+#ifdef RSLD
+struct virtio_vproxy_ioevent_param {
+	struct virtio_device	*vdev;
+	u32			vq;
+};
+#endif
+
 struct vsock_dev {
 	struct virt_queue vqs[VIRTIO_VSOCK_NUM_QUEUES];
 	struct virtio_vsock_config config;
-
+#ifdef RSLD
+	u32 config_size;
+	int vproxy_kick_fds[VIRTIO_VSOCK_NUM_QUEUES * 2];
+	int vproxy_call_fds[VIRTIO_VSOCK_NUM_QUEUES * 2];
+	struct virtio_vproxy_ioevent_param ioeventfds[VIRTIO_VSOCK_NUM_QUEUES * 2];
+#endif
 	u64 features;
 	int vhost_fd;
 	u8 status;
-
 	struct virtio_device dev;
 	struct kvm *kvm;
 };
@@ -81,12 +97,23 @@ static void notify_status(struct kvm *kvm, void *dev, u32 status) {
 	vdev->status = status;
 }
 
+#ifdef RSLD
+static void virtio_vproxy__ioevent_callback(struct kvm *kvm, void *param)
+{
+    struct virtio_vproxy_ioevent_param *p = (struct virtio_vproxy_ioevent_param *)param;
+    p->vdev->ops->signal_vq(kvm, p->vdev, p->vq);
+}
+#endif
+
 static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		u32 pfn) {
 	compat__remove_message(compat_id);
 
 	int ret = 0;
 	void *p = NULL;
+#ifdef RSLD
+	u32 gsi = 0;
+#endif
 	struct vsock_dev *vdev = dev;
 	struct virt_queue *queue = &vdev->vqs[vq];
 
@@ -109,7 +136,15 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		pr_err("VHOST_SET_VRING_NUM failed for vsock device: %d", ret);
 		return ret;
 	}
-
+#ifdef RSLD
+    if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
+        struct virtio_mmio *vmmio = vdev->dev.virtio;
+        gsi = vmmio->irq;
+    } else {
+        struct virtio_pci *vpci = vdev->dev.virtio;
+        gsi = vpci->legacy_irq_line;
+    }
+#endif
 	state.num = 0;
 	if (ioctl(vdev->vhost_fd, VHOST_SET_VRING_BASE, &state) != 0) {
 		ret = -errno;
@@ -128,7 +163,57 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		pr_err("VHOST_SET_VRING_ADDR failed for vsock device: %d", ret);
 		return ret;
 	}
+#ifdef RSLD
+	if (vdev->vhost_fd != 0) {
+		struct vhost_vring_file file;
+		file = (struct vhost_vring_file) {
+			.index	= vq,
+			.fd	= eventfd(0, 0),
+		};
 
+        vdev->vproxy_call_fds[vq] = file.fd;
+
+        if (kvm->cfg.vproxy) {
+            struct ioevent *ioev;
+            int event, r;
+
+            event = vdev->vproxy_call_fds[vq];
+
+            vdev->ioeventfds[vq] = (struct virtio_vproxy_ioevent_param) {
+                .vdev = &vdev->dev,
+                .vq = vq,
+            };
+
+            ioev = malloc(sizeof(*ioev));
+            if (ioev == NULL)
+                return -ENOMEM;
+
+            ioev->fn = virtio_vproxy__ioevent_callback;
+
+            ioev->fn_ptr = &vdev->ioeventfds[vq];
+            ioev->datamatch	= vq;
+            ioev->fn_kvm = kvm;
+            ioev->io_addr	= 0;
+            ioev->io_len	= sizeof(u16);
+            ioev->fd = event;
+            ioev->flags = IOEVENTFD_FLAG_USER_POLL;
+
+            r = ioeventfd__add_epoll_event(ioev, event);
+            if (r) {
+                r = -errno;
+                die_perror("vproxy epoll_ctl");
+            }
+        } else {
+            ret = irq__add_irqfd(kvm, gsi, file.fd, -1);
+            if (ret < 0)
+                die_perror("KVM_IRQFD failed");
+        }
+
+        ret = ioctl(vdev->vhost_fd, VHOST_SET_VRING_CALL, &file);
+        if (ret < 0)
+            die_perror("VHOST_SET_VRING_CALL failed");
+    }
+#endif
 	return 0;
 }
 
@@ -169,13 +254,33 @@ static void notify_vq_eventfd(struct kvm *kvm, void *dev, u32 vq, u32 efd) {
 		.index = vq,
 		.fd = efd,
 	};
-
+#ifdef RSLD
+    if (kvm->cfg.vproxy) {
+        file.fd = eventfd(0, 0);
+        vdev->vproxy_kick_fds[vq] = file.fd;
+    }
+#endif
 	if (ioctl(vdev->vhost_fd, VHOST_SET_VRING_KICK, &file) != 0)
 		die_perror("VHOST_VRING_SET_KICK failed for vsock device");
 }
 
 static int notify_vq(struct kvm *kvm, void *dev, u32 vq)
 {
+#ifdef RSLD
+	struct vsock_dev *vdev = dev;
+
+    if (kvm->cfg.vproxy) {
+        if (vdev->vproxy_kick_fds[vq] != 0) {
+            u64 tmp = 1;
+            int r = 0;
+            if ((r = write(vdev->vproxy_kick_fds[vq], &tmp, sizeof(tmp))) < 0) {
+				if (do_debug_print)
+					printf("vproxy: write vproxy_fds[%d] = %d failed - r = %d %s\n",
+						   vq, vdev->vproxy_kick_fds[vq], r, strerror(errno));
+            }
+        }
+    }
+#endif
 	return 0;
 }
 
@@ -196,8 +301,19 @@ static int set_size_vq(struct kvm *kvm, void *dev, u32 vq, int size)
 	return size;
 }
 
+#ifdef RSLD
+static u32 get_config_size(struct kvm *kvm, void *dev)
+{
+	struct vsock_dev *vdev = dev;
+	return (vdev->config_size);
+}
+#endif
+
 static struct virtio_ops vsock_dev_virtio_ops = {
 	.get_config = get_config,
+#ifdef RSLD
+	.get_config_size = get_config_size,
+#endif
 	.get_host_features = get_host_features,
 	.set_guest_features = set_guest_features,
 	.init_vq = init_vq,
@@ -214,6 +330,17 @@ int virtio_vsock_init(struct kvm *kvm) {
 	int ret = 0, i;
 	struct kvm_mem_bank *bank;
     struct vhost_memory *mem;
+	enum virtio_trans trans = VIRTIO_DEFAULT_TRANS(params->kvm);
+
+#ifdef RSLD
+    if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
+        trans = VIRTIO_MMIO;
+    }
+
+    if (strncmp(kvm->cfg.transport, "pci", 3) == 0) {
+        trans = VIRTIO_PCI;
+    }
+#endif
 
 	if (kvm->cfg.guest_cid == 0)
 		return 0;
@@ -232,8 +359,12 @@ int virtio_vsock_init(struct kvm *kvm) {
 	};
 	vdev->kvm = kvm;
 
+#ifdef RSLD
+	vdev->config_size = sizeof(struct virtio_vsock_config);
+#endif
+
 	ret = virtio_init(kvm, vdev, &vdev->dev, &vsock_dev_virtio_ops,
-			  VIRTIO_DEFAULT_TRANS(kvm), PCI_DEVICE_ID_VIRTIO_VSOCK,
+			  trans, PCI_DEVICE_ID_VIRTIO_VSOCK,
 			  VIRTIO_ID_VSOCK, PCI_CLASS_VSOCK);
 	if (ret < 0)
 		goto cleanup;

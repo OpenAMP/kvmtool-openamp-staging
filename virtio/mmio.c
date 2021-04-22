@@ -275,6 +275,11 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
         return;
     }
 
+    if (vmmio->static_hdr->guest_features != vmmio->hdr.guest_features) {
+		virtio_set_guest_features(kvm, vdev, vmmio->dev, vmmio->static_hdr->guest_features);
+        vmmio->hdr.guest_features = vmmio->static_hdr->guest_features;
+    }
+
     if ((vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER) && (!(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK))) {
         if (vmmio->static_hdr->queue_sel != vmmio->hdr.queue_sel) {
 			vmmio->hdr.queue_sel = vmmio->static_hdr->queue_sel;
@@ -282,6 +287,7 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
         if (vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) {
             vmmio->hdr.queue_pfn = vmmio->static_hdr->queue_pfn;
     		val = vmmio->static_hdr->queue_pfn;
+            qidx = vmmio->num_vqs;
     		if (val) {
     			virtio_mmio_init_ioeventfd(vmmio->kvm, vdev, qidx);
     			vdev->ops->init_vq(vmmio->kvm, vmmio->dev,
@@ -297,15 +303,17 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
     }
 
     if (vmmio->static_hdr->status != vmmio->hdr.status) {
-        vmmio->hdr.status = vmmio->static_hdr->status;
-        if (!vmmio->hdr.status) /* Sample endianness on reset */
+        vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
+        if (!vmmio->hdr.status)
 			vdev->endian = kvm_cpu__get_endianness(vcpu);
+        vmmio->hdr.status = vmmio->static_hdr->status;
         virtio_notify_status(kvm, vdev, vmmio->dev, vmmio->hdr.status);
     }
     if (vmmio->static_hdr->interrupt_state != vmmio->hdr.interrupt_state) {
         vmmio->hdr.interrupt_state &= ~vmmio->static_hdr->interrupt_state;
         vmmio->static_hdr->interrupt_state = vmmio->hdr.interrupt_state;
     }
+    //TODO: check config changes @VIRTIO_MMIO_CONFIG
 }
 #endif
 
@@ -438,6 +446,7 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
     vmmio->hdr.host_features = vmmio->static_hdr->host_features;
     vmmio->hdr.queue_num_max = vmmio->static_hdr->queue_num_max;
     vmmio->hdr.queue_align = vmmio->static_hdr->queue_align;
+    vmmio->static_hdr->queue_sel = ~vmmio->hdr.queue_sel;
 
     if (vdev->ops->get_config_size) {
         int config_size = vdev->ops->get_config_size(vmmio->kvm, vmmio->dev);

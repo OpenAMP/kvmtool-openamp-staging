@@ -103,7 +103,8 @@ void kvm_run_set_wrapper_sandbox(void)
 			"virtio transport: mmio, pci"),	\
 	OPT_U64('\0', "shmem-addr", &(cfg)->hvl_shmem_phys_addr, "Shared memory"	\
 		" physical address"),					\
-	OPT_U64('\0', "shmem-size", &(cfg)->hvl_shmem_size, "Shared memory size"),
+	OPT_U64('\0', "shmem-size", &(cfg)->hvl_shmem_size, "Shared memory size"), \
+	OPT_BOOLEAN('\0', "vproxy", &(cfg)->vproxy,	"vhost proxy mode"),
 #else
 #define OPT_PMM(...)
 #endif

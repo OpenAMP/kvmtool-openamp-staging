@@ -41,6 +41,7 @@ Physical Machine Monitor options:
                   virtio transport: mmio, pci
 --shmem-addr <n>  Shared memory physical address
 --shmem-size <n>  Shared memory size
+--vproxy          vhost proxy mode
 ```
 
 Notes:
@@ -48,6 +49,6 @@ Notes:
 - For an x86 guest, the irq parameter specifies an IO APIC interrupt line to be used as virtio backend-to-frontend notification.
 - In the hypervisorless mode of operation, the transport is mmio.
 - shmem-addr and shmem-size define a shared memory pool from which each virtio device receives a pre-shared memory region to use for virtqueues and data buffers
+--vproxy enables notification indirection between the PMM and vhost_net and vhost_vsock to allow the PMM to make use of the host's AF_VSOCK support for example.
 
-
-Currently the following virtio devices can operate in hypervisor-less mode: 9p, console, virtio network.
+Currently the following virtio devices can operate in hypervisor-less mode: 9p, console, virtio network, virtio vsock.

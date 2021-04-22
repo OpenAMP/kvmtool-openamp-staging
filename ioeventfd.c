@@ -222,3 +222,25 @@ int ioeventfd__del_event(u64 addr, u64 datamatch)
 
 	return 0;
 }
+
+#ifdef RSLD
+int ioeventfd__add_epoll_event(struct ioevent *ioev, int event)
+{
+    int r;
+    struct epoll_event epoll_event;
+    epoll_event = (struct epoll_event) {
+        .events		= EPOLLIN,
+        .data.ptr	= ioev,
+    };
+
+    r = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, event, &epoll_event);
+    if (r) {
+        r = -errno;
+        die_perror("vproxy epoll_ctl");
+    }
+
+    list_add_tail(&ioev->list, &used_ioevents);
+
+	return 0;
+}
+#endif

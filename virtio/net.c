@@ -9,6 +9,7 @@
 #include "kvm/guest_compat.h"
 #include "kvm/iovec.h"
 #include "kvm/strbuf.h"
+#include "kvm/ioeventfd.h"
 
 #include <linux/vhost.h>
 #include <linux/virtio_net.h>
@@ -26,10 +27,20 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/eventfd.h>
+#ifdef RSLD
+#include "kvm/virtio-pci.h"
+#include "kvm/virtio-mmio.h"
+#endif
 
 #define VIRTIO_NET_QUEUE_SIZE		256
 #define VIRTIO_NET_NUM_QUEUES		8
 
+#ifdef RSLD
+struct virtio_vproxy_ioevent_param {
+	struct virtio_device	*vdev;
+	u32			vq;
+};
+#endif
 struct net_dev;
 
 struct net_dev_operations {
@@ -62,6 +73,11 @@ struct net_dev {
 
 	int				vhost_fd;
 	int				tap_fd;
+#ifdef RSLD
+	int				vproxy_kick_fds[VIRTIO_NET_NUM_QUEUES * 2];
+	int				vproxy_call_fds[VIRTIO_NET_NUM_QUEUES * 2];
+	struct virtio_vproxy_ioevent_param      ioeventfds[VIRTIO_NET_NUM_QUEUES * 2];
+#endif
 	char				tap_name[IFNAMSIZ];
 	bool				tap_ufo;
 
@@ -582,6 +598,14 @@ static bool is_ctrl_vq(struct net_dev *ndev, u32 vq)
 	return vq == (u32)(ndev->queue_pairs * 2);
 }
 
+#ifdef RSLD
+static void virtio_vproxy__ioevent_callback(struct kvm *kvm, void *param)
+{
+    struct virtio_vproxy_ioevent_param *p = (struct virtio_vproxy_ioevent_param *)param;
+    p->vdev->ops->signal_vq(kvm, p->vdev, p->vq);
+}
+#endif
+
 static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		   u32 pfn)
 {
@@ -645,6 +669,76 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 	r = ioctl(ndev->vhost_fd, VHOST_SET_VRING_ADDR, &addr);
 	if (r < 0)
 		die_perror("VHOST_SET_VRING_ADDR failed");
+
+#ifdef RSLD
+	if (ndev->vhost_fd != 0) {
+        struct vhost_vring_file file;
+        struct net_dev_queue *queue = &ndev->queues[vq];
+        u32 gsi = 0;
+
+        if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
+            struct virtio_mmio *vmmio = ndev->vdev.virtio;
+            gsi = vmmio->irq;
+        } else {
+            struct virtio_pci *vpci = ndev->vdev.virtio;
+            gsi = vpci->legacy_irq_line;
+        }
+
+        file = (struct vhost_vring_file) {
+            .index = vq,
+            .fd = eventfd(0, 0),
+        };
+
+        ndev->vproxy_call_fds[vq] = file.fd;
+
+        if (kvm->cfg.vproxy) {
+            struct ioevent *ioev;
+            int event, r;
+
+            event = ndev->vproxy_call_fds[vq];
+
+            ndev->ioeventfds[vq] = (struct virtio_vproxy_ioevent_param) {
+                .vdev = &ndev->vdev,
+                .vq = vq,
+            };
+
+            ioev = malloc(sizeof(*ioev));
+            if (ioev == NULL)
+                return -ENOMEM;
+
+            ioev->fn = virtio_vproxy__ioevent_callback;
+
+            ioev->fn_ptr = &ndev->ioeventfds[vq];
+            ioev->datamatch	= vq;
+            ioev->fn_kvm = kvm;
+            ioev->io_addr = 0;
+            ioev->io_len = sizeof(u16);
+            ioev->fd = event;
+            ioev->flags = IOEVENTFD_FLAG_USER_POLL;
+
+            r = ioeventfd__add_epoll_event(ioev, event);
+            if (r) {
+                r = -errno;
+                die_perror("vproxy epoll_ctl");
+            }
+        } else {
+            r = irq__add_irqfd(kvm, gsi, file.fd, -1);
+            if (r < 0)
+                die_perror("KVM_IRQFD failed");
+            queue->irqfd = file.fd;
+                queue->gsi = gsi;
+        }
+
+        r = ioctl(ndev->vhost_fd, VHOST_SET_VRING_CALL, &file);
+        if (r < 0)
+            die_perror("VHOST_SET_VRING_CALL failed");
+
+        file.fd = ndev->tap_fd;
+        r = ioctl(ndev->vhost_fd, VHOST_NET_SET_BACKEND, &file);
+        if (r != 0)
+            die("VHOST_NET_SET_BACKEND failed %d %s", errno, strerror(errno));
+    }
+#endif
 
 	return 0;
 }
@@ -721,6 +815,12 @@ static void notify_vq_eventfd(struct kvm *kvm, void *dev, u32 vq, u32 efd)
 
 	if (ndev->vhost_fd == 0 || is_ctrl_vq(ndev, vq))
 		return;
+#ifdef RSLD
+    if (kvm->cfg.vproxy) {
+        file.fd = eventfd(0, 0);
+        ndev->vproxy_kick_fds[vq] = file.fd;
+    }
+#endif
 
 	r = ioctl(ndev->vhost_fd, VHOST_SET_VRING_KICK, &file);
 	if (r < 0)
@@ -730,6 +830,21 @@ static void notify_vq_eventfd(struct kvm *kvm, void *dev, u32 vq, u32 efd)
 static int notify_vq(struct kvm *kvm, void *dev, u32 vq)
 {
 	struct net_dev *ndev = dev;
+
+#ifdef RSLD
+    if ((ndev->vhost_fd != 0) && (kvm->cfg.vproxy)) {
+        if (ndev->vproxy_kick_fds[vq] != 0) {
+            u64 tmp = 1;
+            int r = 0;
+            if ((r = write(ndev->vproxy_kick_fds[vq], &tmp, sizeof(tmp))) < 0) {
+				if (do_debug_print)
+					printf("vproxy: write vproxy_fds[%d] = %d failed - r = %d %s\n",
+						   vq, ndev->vproxy_kick_fds[vq], r, strerror(errno));
+            }
+        }
+        return 0;
+    }
+#endif
 
 	virtio_net_handle_callback(kvm, ndev, vq);
 

@@ -28,5 +28,8 @@ int ioeventfd__init(struct kvm *kvm);
 int ioeventfd__exit(struct kvm *kvm);
 int ioeventfd__add_event(struct ioevent *ioevent, int flags);
 int ioeventfd__del_event(u64 addr, u64 datamatch);
+#ifdef RSLD
+int ioeventfd__add_epoll_event(struct ioevent *ioev, int event);
+#endif
 
 #endif
