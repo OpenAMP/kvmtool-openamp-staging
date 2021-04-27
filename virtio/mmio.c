@@ -28,6 +28,9 @@ static u64 virtio_mmio_get_shm_space_block(struct kvm *kvm, u32 size)
 {
     u64 block;
 
+    if (kvm->cfg.hvl_shmem_phys_addr == 0)
+        return 0;
+
     if (virtio_mmio_shm_space_blocks == 0) {
         virtio_mmio_shm_space_blocks = kvm->cfg.hvl_shmem_phys_addr + virtio_mmio_shm_dtb_offset;
     }
@@ -359,7 +362,9 @@ void generate_virtio_mmio_fdt_node(void *fdt,
 						 dev_hdr);
 	u64 addr = vmmio->addr;
 #ifdef RSLD
-    addr = (((u64)vmmio->static_hdr->shm_base_high) << 32) | vmmio->static_hdr->shm_base_low;
+    if (vmmio->static_hdr != NULL) {
+        addr = (((u64)vmmio->static_hdr->shm_base_high) << 32) | vmmio->static_hdr->shm_base_low;
+    }
 #endif
 
 	u64 reg_prop[] = {
@@ -430,32 +435,34 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 #ifdef RSLD
     vmmio_shm_phys_addr = virtio_mmio_get_shm_space_block(kvm, vmmio_shm_size);
 
-    vmmio_shm_addr = (u64)kvm->shmem_start + (vmmio_shm_phys_addr - kvm->cfg.hvl_shmem_phys_addr);
-    vmmio->hdr.shm_len_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_size);
-    vmmio->hdr.shm_len_high = virtio_host_to_guest_u32(vdev, vmmio_shm_size >> 32);
-    vmmio->hdr.shm_base_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_phys_addr);
-    vmmio->hdr.shm_base_high = virtio_host_to_guest_u32(vdev, vmmio_shm_phys_addr >> 32);
+    if (vmmio_shm_phys_addr != 0) {
+        vmmio_shm_addr = (u64)kvm->shmem_start + (vmmio_shm_phys_addr - kvm->cfg.hvl_shmem_phys_addr);
+        vmmio->hdr.shm_len_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_size);
+        vmmio->hdr.shm_len_high = virtio_host_to_guest_u32(vdev, vmmio_shm_size >> 32);
+        vmmio->hdr.shm_base_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_phys_addr);
+        vmmio->hdr.shm_base_high = virtio_host_to_guest_u32(vdev, vmmio_shm_phys_addr >> 32);
 
-    memcpy((void *)vmmio_shm_addr, &vmmio->hdr, sizeof(struct virtio_mmio_hdr));
-    vmmio->static_hdr = (struct virtio_mmio_hdr *)vmmio_shm_addr;
-    vmmio->static_hdr->guest_page_size = 0x1000;
-    vmmio->static_hdr->queue_align = 0x1000;
-    vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
-    vmmio->static_hdr->queue_num_max = vdev->ops->get_size_vq(vmmio->kvm, vmmio->dev, 0);
-    vmmio->hdr.guest_page_size = 0x1000;
-    vmmio->hdr.host_features = vmmio->static_hdr->host_features;
-    vmmio->hdr.queue_num_max = vmmio->static_hdr->queue_num_max;
-    vmmio->hdr.queue_align = vmmio->static_hdr->queue_align;
-    vmmio->static_hdr->queue_sel = ~vmmio->hdr.queue_sel;
+        memcpy((void *)vmmio_shm_addr, &vmmio->hdr, sizeof(struct virtio_mmio_hdr));
+        vmmio->static_hdr = (struct virtio_mmio_hdr *)vmmio_shm_addr;
+        vmmio->static_hdr->guest_page_size = 0x1000;
+        vmmio->static_hdr->queue_align = 0x1000;
+        vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
+        vmmio->static_hdr->queue_num_max = vdev->ops->get_size_vq(vmmio->kvm, vmmio->dev, 0);
+        vmmio->hdr.guest_page_size = 0x1000;
+        vmmio->hdr.host_features = vmmio->static_hdr->host_features;
+        vmmio->hdr.queue_num_max = vmmio->static_hdr->queue_num_max;
+        vmmio->hdr.queue_align = vmmio->static_hdr->queue_align;
+        vmmio->static_hdr->queue_sel = ~vmmio->hdr.queue_sel;
 
-    if (vdev->ops->get_config_size) {
-        int config_size = vdev->ops->get_config_size(vmmio->kvm, vmmio->dev);
-        u8 *devcfg  = (u8 *)(vmmio_shm_addr + VIRTIO_MMIO_CONFIG);
-        int i;
-    	for (i = 0; i < config_size; i++) {
-            devcfg[i] = vdev->ops->get_config(vmmio->kvm,
-    							vmmio->dev)[i];
-    	}
+        if (vdev->ops->get_config_size) {
+            int config_size = vdev->ops->get_config_size(vmmio->kvm, vmmio->dev);
+            u8 *devcfg  = (u8 *)(vmmio_shm_addr + VIRTIO_MMIO_CONFIG);
+            int i;
+            for (i = 0; i < config_size; i++) {
+                devcfg[i] = vdev->ops->get_config(vmmio->kvm,
+                                    vmmio->dev)[i];
+            }
+        }
     }
 #endif
 	/*
