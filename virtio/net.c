@@ -439,7 +439,7 @@ static bool virtio_net__tap_create(struct net_dev *ndev)
 	 * UFO kernel support.
 	 */
 	ndev->tap_ufo = true;
-	offload = TUN_F_CSUM | TUN_F_TSO4 | TUN_F_TSO6 | TUN_F_UFO;
+	offload = TUN_F_UFO;
 	if (ioctl(ndev->tap_fd, TUNSETOFFLOAD, offload) < 0) {
 		/*
 		 * Is this failure caused by kernel remove the UFO support?
@@ -557,6 +557,25 @@ static void set_guest_features(struct kvm *kvm, void *dev, u32 features)
 	conf->status = virtio_host_to_guest_u16(&ndev->vdev, conf->status);
 	conf->max_virtqueue_pairs = virtio_host_to_guest_u16(&ndev->vdev,
 							     conf->max_virtqueue_pairs);
+
+	if (ndev->tap_fd >= 0) {
+		int offload = 0;
+		if (has_virtio_feature(ndev, VIRTIO_NET_F_GUEST_CSUM))
+			offload |= TUN_F_TSO6;
+
+		if (has_virtio_feature(ndev, VIRTIO_NET_F_GUEST_TSO4))
+			offload |= TUN_F_TSO4;
+
+		if (has_virtio_feature(ndev, VIRTIO_NET_F_GUEST_TSO6))
+			offload |= TUN_F_TSO6;
+
+		if (has_virtio_feature(ndev, VIRTIO_NET_F_GUEST_UFO))
+			if (ndev->tap_ufo)
+				offload |= TUN_F_UFO;
+
+		if (ioctl(ndev->tap_fd, TUNSETOFFLOAD, offload) < 0)
+			pr_warning("Config tap device TUNSETOFFLOAD error");
+	}
 }
 
 static void virtio_net_start(struct net_dev *ndev)
