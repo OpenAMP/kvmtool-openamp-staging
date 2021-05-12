@@ -47,6 +47,7 @@ struct p9_dev {
 	struct virtio_9p_config	*config;
 #ifdef RSLD
     u32			config_size;
+    u32			mem_size;
 #endif
 	u32			features;
 

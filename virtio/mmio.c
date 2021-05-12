@@ -433,6 +433,9 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 	}
 
 #ifdef RSLD
+    if (vdev->ops->get_mem_size)
+        vmmio_shm_size = vdev->ops->get_mem_size(vmmio->kvm, vmmio->dev);
+
     vmmio_shm_phys_addr = virtio_mmio_get_shm_space_block(kvm, vmmio_shm_size);
 
     if (vmmio_shm_phys_addr != 0) {

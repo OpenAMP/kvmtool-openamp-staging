@@ -1388,6 +1388,12 @@ static u32 get_config_size(struct kvm *kvm, void *dev)
 
 	return (p9dev->config_size);
 }
+
+static u32 get_mem_size(struct kvm *kvm, void *dev)
+{
+	struct p9_dev *p9dev = dev;
+	return (p9dev->mem_size);
+}
 #endif
 
 static u32 get_host_features(struct kvm *kvm, void *dev)
@@ -1486,6 +1492,7 @@ struct virtio_ops p9_dev_virtio_ops = {
 	.get_config		= get_config,
 #ifdef RSLD
 	.get_config_size	= get_config_size,
+	.get_mem_size	= get_mem_size,
 #endif
 	.get_host_features	= get_host_features,
 	.set_guest_features	= set_guest_features,
@@ -1611,6 +1618,7 @@ int virtio_9p__register(struct kvm *kvm, const char *root, const char *tag_name)
 	}
 #ifdef RSLD
     p9dev->config_size = sizeof(*p9dev->config) + strlen(tag_name) + 1;
+	p9dev->mem_size = 0x6000;
 #endif
 	strncpy(p9dev->root_dir, root, sizeof(p9dev->root_dir));
 	p9dev->root_dir[sizeof(p9dev->root_dir)-1] = '\x00';

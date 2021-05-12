@@ -68,6 +68,7 @@ struct net_dev {
 	struct virtio_net_config	config;
 #ifdef RSLD
 	u32			config_size;
+	u32			mem_size;
 #endif
 	u32				features, queue_pairs;
 
@@ -902,12 +903,19 @@ static u32 get_config_size(struct kvm *kvm, void *dev)
 	struct net_dev *ndev = dev;
 	return (ndev->config_size);
 }
+
+static u32 get_mem_size(struct kvm *kvm, void *dev)
+{
+	struct net_dev *ndev = dev;
+	return (ndev->mem_size);
+}
 #endif
 
 static struct virtio_ops net_dev_virtio_ops = {
 	.get_config		= get_config,
 #ifdef RSLD
 	.get_config_size	= get_config_size,
+	.get_mem_size	= get_mem_size,
 #endif
 	.get_host_features	= get_host_features,
 	.set_guest_features	= set_guest_features,
@@ -1120,6 +1128,7 @@ static int virtio_net__init_one(struct virtio_net_params *params)
 	}
 #ifdef RSLD
 	ndev->config_size = sizeof(struct virtio_net_config);
+    ndev->mem_size = 0x80000;
 #endif
 	r = virtio_init(params->kvm, ndev, &ndev->vdev, ops, trans,
 			PCI_DEVICE_ID_VIRTIO_NET, VIRTIO_ID_NET, PCI_CLASS_NET);

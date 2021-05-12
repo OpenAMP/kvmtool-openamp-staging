@@ -42,6 +42,7 @@ struct vsock_dev {
 	struct virtio_vsock_config config;
 #ifdef RSLD
 	u32 config_size;
+	u32 mem_size;
 	int vproxy_kick_fds[VIRTIO_VSOCK_NUM_QUEUES * 2];
 	int vproxy_call_fds[VIRTIO_VSOCK_NUM_QUEUES * 2];
 	struct virtio_vproxy_ioevent_param ioeventfds[VIRTIO_VSOCK_NUM_QUEUES * 2];
@@ -307,12 +308,20 @@ static u32 get_config_size(struct kvm *kvm, void *dev)
 	struct vsock_dev *vdev = dev;
 	return (vdev->config_size);
 }
+
+static u32 get_mem_size(struct kvm *kvm, void *dev)
+{
+	struct vsock_dev *vdev = dev;
+	return (vdev->mem_size);
+}
+
 #endif
 
 static struct virtio_ops vsock_dev_virtio_ops = {
 	.get_config = get_config,
 #ifdef RSLD
 	.get_config_size = get_config_size,
+	.get_mem_size = get_mem_size,
 #endif
 	.get_host_features = get_host_features,
 	.set_guest_features = set_guest_features,
@@ -330,7 +339,7 @@ int virtio_vsock_init(struct kvm *kvm) {
 	int ret = 0, i;
 	struct kvm_mem_bank *bank;
     struct vhost_memory *mem;
-	enum virtio_trans trans = VIRTIO_DEFAULT_TRANS(params->kvm);
+	enum virtio_trans trans = VIRTIO_DEFAULT_TRANS(kvm);
 
 #ifdef RSLD
     if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
@@ -361,6 +370,7 @@ int virtio_vsock_init(struct kvm *kvm) {
 
 #ifdef RSLD
 	vdev->config_size = sizeof(struct virtio_vsock_config);
+	vdev->mem_size = 0x10000;
 #endif
 
 	ret = virtio_init(kvm, vdev, &vdev->dev, &vsock_dev_virtio_ops,

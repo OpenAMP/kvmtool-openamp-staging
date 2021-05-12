@@ -34,6 +34,7 @@ struct con_dev {
 	struct virtio_device		vdev;
 	struct virt_queue		vqs[VIRTIO_CONSOLE_NUM_QUEUES];
 	struct virtio_console_config	config;
+    u32				mem_size;
 	u32				features;
 	int				vq_ready;
 
@@ -219,8 +220,19 @@ static int get_vq_count(struct kvm *kvm, void *dev)
 	return VIRTIO_CONSOLE_NUM_QUEUES;
 }
 
+#ifdef RSLD
+static u32 get_mem_size(struct kvm *kvm, void *dev)
+{
+	struct con_dev *cdev = dev;
+	return (cdev->mem_size);
+}
+#endif
+
 static struct virtio_ops con_dev_virtio_ops = {
 	.get_config		= get_config,
+#ifdef RSLD
+	.get_mem_size	= get_mem_size,
+#endif
 	.get_host_features	= get_host_features,
 	.set_guest_features	= set_guest_features,
 	.get_vq_count		= get_vq_count,
@@ -249,6 +261,7 @@ int virtio_console__init(struct kvm *kvm)
     if (strncmp(kvm->cfg.transport, "pci", 3) == 0) {
         trans = VIRTIO_PCI;
     }
+    cdev.mem_size = 0x6000;
 #endif
 
 	r = virtio_init(kvm, &cdev, &cdev.vdev, &con_dev_virtio_ops,

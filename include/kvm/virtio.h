@@ -186,6 +186,7 @@ struct virtio_ops {
 	u8 *(*get_config)(struct kvm *kvm, void *dev);
 #ifdef RSLD
     u32 (*get_config_size)(struct kvm *kvm, void *dev);
+    u32 (*get_mem_size)(struct kvm *kvm, void *dev);
 #endif
 	u32 (*get_host_features)(struct kvm *kvm, void *dev);
 	void (*set_guest_features)(struct kvm *kvm, void *dev, u32 features);
