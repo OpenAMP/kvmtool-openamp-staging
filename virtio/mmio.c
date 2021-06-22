@@ -95,8 +95,9 @@ int virtio_mmio_signal_vq(struct kvm *kvm, struct virtio_device *vdev, u32 vq)
 
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_VRING;
 #ifdef RSLD
-	vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
 	if (kvm->cfg.rsld) {
+		if (vmmio->static_hdr != NULL)
+			vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
 		kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
 	} else {
 #endif
