@@ -219,13 +219,20 @@ bool kvm__load_firmware(struct kvm *kvm, const char *firmware_filename)
 	/* Kernel isn't loaded by kvm, point start address to firmware */
 	kvm->arch.kern_guest_start = fw_addr;
 
-	/* Load dtb just after the firmware image*/
-	host_pos += fw_sz;
-	if (host_pos + FDT_MAX_SIZE > limit)
-		die("not enough space to load fdt");
+	if (kvm->cfg.vxworks_kernel) {
+		/* Load dtb just before the firmware image*/
+		host_pos -= FDT_MAX_SIZE;
+		kvm->arch.dtb_guest_start = ALIGN(host_to_guest_flat(kvm, host_pos),
+			FDT_MAX_SIZE);
+	} else {
+		/* Load dtb just after the firmware image*/
+		host_pos += fw_sz;
+		if (host_pos + FDT_MAX_SIZE > limit)
+			die("not enough space to load fdt");
+		kvm->arch.dtb_guest_start = ALIGN(host_to_guest_flat(kvm, host_pos),
+						FDT_ALIGN);
+	}
 
-	kvm->arch.dtb_guest_start = ALIGN(host_to_guest_flat(kvm, host_pos),
-					  FDT_ALIGN);
 	pr_info("Placing fdt at 0x%llx - 0x%llx",
 		kvm->arch.dtb_guest_start,
 		kvm->arch.dtb_guest_start + FDT_MAX_SIZE);
