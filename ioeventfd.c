@@ -223,7 +223,6 @@ int ioeventfd__del_event(u64 addr, u64 datamatch)
 	return 0;
 }
 
-#ifdef RSLD
 int ioeventfd__add_epoll_event(struct ioevent *ioev, int event)
 {
     int r;
@@ -243,4 +242,4 @@ int ioeventfd__add_epoll_event(struct ioevent *ioev, int event)
 
 	return 0;
 }
-#endif
+

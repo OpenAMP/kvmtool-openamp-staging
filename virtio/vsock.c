@@ -14,8 +14,8 @@
 #include "kvm/virtio.h"
 #include "kvm/virtio-pci-dev.h"
 #include "kvm/util.h"
-#ifdef RSLD
 #include "kvm/ioeventfd.h"
+#ifdef RSLD
 #include "kvm/irq.h"
 #include "kvm/virtio-pci.h"
 #include "kvm/virtio-mmio.h"
@@ -30,23 +30,19 @@ struct virtio_vsock_config {
 	u64 guest_cid;
 };
 
-#ifdef RSLD
 struct virtio_vproxy_ioevent_param {
 	struct virtio_device	*vdev;
 	u32			vq;
 };
-#endif
 
 struct vsock_dev {
 	struct virt_queue vqs[VIRTIO_VSOCK_NUM_QUEUES];
 	struct virtio_vsock_config config;
-#ifdef RSLD
 	u32 config_size;
 	u32 mem_size;
 	int vproxy_kick_fds[VIRTIO_VSOCK_NUM_QUEUES * 2];
 	int vproxy_call_fds[VIRTIO_VSOCK_NUM_QUEUES * 2];
 	struct virtio_vproxy_ioevent_param ioeventfds[VIRTIO_VSOCK_NUM_QUEUES * 2];
-#endif
 	u64 features;
 	int vhost_fd;
 	u8 status;
@@ -98,13 +94,11 @@ static void notify_status(struct kvm *kvm, void *dev, u32 status) {
 	vdev->status = status;
 }
 
-#ifdef RSLD
 static void virtio_vproxy__ioevent_callback(struct kvm *kvm, void *param)
 {
     struct virtio_vproxy_ioevent_param *p = (struct virtio_vproxy_ioevent_param *)param;
     p->vdev->ops->signal_vq(kvm, p->vdev, p->vq);
 }
-#endif
 
 static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		u32 pfn) {
@@ -112,11 +106,15 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 
 	int ret = 0;
 	void *p = NULL;
-#ifdef RSLD
 	u32 gsi = 0;
-#endif
+	int use_vsock_call_proxy = 0;
 	struct vsock_dev *vdev = dev;
 	struct virt_queue *queue = &vdev->vqs[vq];
+
+#ifdef CONFIG_ARM64
+	//we're not using irqfd on ARM64
+	use_vsock_call_proxy = 1;
+#endif
 
 	queue->pfn = pfn;
 	p = virtio_get_vq(kvm, queue->pfn, page_size);
@@ -164,7 +162,6 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		pr_err("VHOST_SET_VRING_ADDR failed for vsock device: %d", ret);
 		return ret;
 	}
-#ifdef RSLD
 	if (vdev->vhost_fd != 0) {
 		struct vhost_vring_file file;
 		file = (struct vhost_vring_file) {
@@ -173,8 +170,11 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 		};
 
         vdev->vproxy_call_fds[vq] = file.fd;
-
-        if (kvm->cfg.vproxy) {
+        if (
+#ifdef RSLD
+            kvm->cfg.vproxy ||
+#endif
+            use_vsock_call_proxy) {
             struct ioevent *ioev;
             int event, r;
 
@@ -214,7 +214,7 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
         if (ret < 0)
             die_perror("VHOST_SET_VRING_CALL failed");
     }
-#endif
+
 	return 0;
 }
 
