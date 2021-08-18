@@ -711,7 +711,7 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 
         ndev->vproxy_call_fds[vq] = file.fd;
 
-        if (kvm->cfg.vproxy) {
+        if (ndev->params->vproxy) {
             struct ioevent *ioev;
             int event, r;
 
@@ -836,7 +836,7 @@ static void notify_vq_eventfd(struct kvm *kvm, void *dev, u32 vq, u32 efd)
 	if (ndev->vhost_fd == 0 || is_ctrl_vq(ndev, vq))
 		return;
 #ifdef RSLD
-    if (kvm->cfg.vproxy) {
+    if (ndev->params->vproxy) {
         file.fd = eventfd(0, 0);
         ndev->vproxy_kick_fds[vq] = file.fd;
     }
@@ -852,7 +852,7 @@ static int notify_vq(struct kvm *kvm, void *dev, u32 vq)
 	struct net_dev *ndev = dev;
 
 #ifdef RSLD
-    if ((ndev->vhost_fd != 0) && (kvm->cfg.vproxy)) {
+    if ((ndev->vhost_fd != 0) && (ndev->params->vproxy)) {
         if (ndev->vproxy_kick_fds[vq] != 0) {
             u64 tmp = 1;
             int r = 0;
@@ -1012,6 +1012,8 @@ static int set_net_param(struct kvm *kvm, struct virtio_net_params *p,
 		p->fd = atoi(val);
 	} else if (strcmp(param, "mq") == 0) {
 		p->mq = atoi(val);
+	} else if (strcmp(param, "vproxy") == 0) {
+		p->vproxy = atoi(val);
 	} else
 		die("Unknown network parameter %s", param);
 

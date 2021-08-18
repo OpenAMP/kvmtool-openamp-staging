@@ -17,6 +17,9 @@ struct virtio_net_params {
 	struct kvm *kvm;
 	int mode;
 	int vhost;
+#ifdef RSLD
+	int vproxy;
+#endif
 	int fd;
 	int mq;
 };
