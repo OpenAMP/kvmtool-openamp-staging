@@ -40,6 +40,14 @@ void kvm__init_ram(struct kvm *kvm)
 		    "address 0x%llx [err %d]", phys_size, phys_start, err);
 
 	kvm->arch.memory_guest_start = phys_start;
+#ifdef RSLD
+    if (kvm->cfg.hvl_shmem_phys_addr != 0) {
+        err = kvm__register_ram(kvm, kvm->cfg.hvl_shmem_phys_addr, kvm->shmem_size, kvm->shmem_start);
+		if (err)
+			die("RSL: Failed to register %lld bytes of memory at physical "
+				"address 0x%llx [err %d]", kvm->shmem_size, kvm->cfg.hvl_shmem_phys_addr, err);
+    }
+#endif
 }
 
 void kvm__arch_delete_ram(struct kvm *kvm)
@@ -86,6 +94,24 @@ void kvm__arch_init(struct kvm *kvm, const char *hugetlbfs_path, u64 ram_size)
 	/* Create the virtual GIC. */
 	if (gic__create(kvm, kvm->cfg.arch.irqchip))
 		die("Failed to create virtual GIC");
+
+#ifdef RSLD
+	if (kvm->cfg.hvl_shmem_size != 0) {
+
+		kvm->arch.shm_alloc_size = kvm->cfg.hvl_shmem_size + SZ_2M;
+		kvm->arch.shm_alloc_start = mmap_anon_or_hugetlbfs(kvm, hugetlbfs_path,
+								kvm->arch.shm_alloc_size);
+		if (kvm->arch.shm_alloc_start == MAP_FAILED)
+			die("[SHM] out of memory");
+		kvm->shmem_start = (void *)ALIGN((unsigned long)kvm->arch.shm_alloc_start,
+					SZ_2M);
+		madvise(kvm->arch.shm_alloc_start, kvm->arch.shm_alloc_size,
+			MADV_MERGEABLE);
+		madvise(kvm->arch.shm_alloc_start, kvm->arch.shm_alloc_size,
+			MADV_HUGEPAGE);
+		kvm->shmem_size = kvm->cfg.hvl_shmem_size;
+	}
+#endif
 }
 
 #define FDT_ALIGN	SZ_2M

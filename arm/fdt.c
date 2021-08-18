@@ -3,6 +3,7 @@
 #include "kvm/kvm.h"
 #include "kvm/kvm-cpu.h"
 #include "kvm/virtio-mmio.h"
+#include "kvm/term.h"
 
 #include "arm-common/gic.h"
 #include "arm-common/pci.h"
@@ -13,6 +14,14 @@
 #include <linux/kernel.h>
 #include <linux/sizes.h>
 #include <linux/psci.h>
+
+#ifdef RSLD
+extern void generate_notification_fdt_node(void *fdt,
+				   struct device_header *dev_hdr,
+				   void (*generate_irq_prop)(void *fdt,
+							     u8 irq,
+							     enum irq_type));
+#endif
 
 static void dump_fdt(const char *dtb_file, void *fdt)
 {
@@ -141,7 +150,8 @@ static int setup_fdt(struct kvm *kvm)
 					 kvm->cfg.real_cmdline));
 
 	_FDT(fdt_property_u64(fdt, "kaslr-seed", kvm->cfg.arch.kaslr_seed));
-	_FDT(fdt_property_string(fdt, "stdout-path", "serial0"));
+	if (kvm->cfg.active_console != CONSOLE_VIRTIO)
+		_FDT(fdt_property_string(fdt, "stdout-path", "serial0"));
 
 	/* Initrd */
 	if (kvm->arch.initrd_size != 0) {
@@ -167,13 +177,25 @@ static int setup_fdt(struct kvm *kvm)
 	if (generate_cpu_peripheral_fdt_nodes)
 		generate_cpu_peripheral_fdt_nodes(fdt, kvm);
 
-	/* Virtio MMIO devices */
-	dev_hdr = device__first_dev(DEVICE_BUS_MMIO);
-	while (dev_hdr) {
-		generate_mmio_fdt_nodes = dev_hdr->data;
-		generate_mmio_fdt_nodes(fdt, dev_hdr, generate_irq_prop);
-		dev_hdr = device__next_dev(dev_hdr);
+#ifdef RSLD
+	if (!kvm->cfg.rsld) {
+#endif
+		/* Virtio MMIO devices */
+		dev_hdr = device__first_dev(DEVICE_BUS_MMIO);
+		while (dev_hdr) {
+			generate_mmio_fdt_nodes = dev_hdr->data;
+			generate_mmio_fdt_nodes(fdt, dev_hdr, generate_irq_prop);
+			dev_hdr = device__next_dev(dev_hdr);
+		}
+#ifdef RSLD
 	}
+
+	if (kvm->cfg.rsld) {
+		if ((dev_hdr = device__first_dev(DEVICE_BUS_MMIO)) != NULL) {
+			generate_notification_fdt_node(fdt, dev_hdr, generate_irq_prop);
+		}
+	}
+#endif
 
 	/* IOPORT devices (!) */
 	dev_hdr = device__first_dev(DEVICE_BUS_IOPORT);

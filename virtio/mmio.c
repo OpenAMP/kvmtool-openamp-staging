@@ -22,6 +22,14 @@ static u32 virtio_mmio_get_io_space_block(u32 size)
 }
 
 #ifdef RSLD
+#ifdef CONFIG_ARM64
+void generate_notification_fdt_node(void *fdt,
+				   struct device_header *dev_hdr,
+				   void (*generate_irq_prop)(void *fdt,
+							     u8 irq,
+							     enum irq_type));
+#endif
+
 static u64 virtio_mmio_shm_space_blocks;
 static u64 virtio_mmio_shm_dtb_offset = FDT_MAX_SIZE;
 static u64 virtio_mmio_get_shm_space_block(struct kvm *kvm, u32 size)
@@ -272,6 +280,13 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
     static int qidx = 0;
     int i = 0;
 
+	if ((vmmio->static_hdr->status != vmmio->hdr.status) && (vmmio->static_hdr->status == 0) &&
+		(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK)) {
+		//reinit
+		vmmio->hdr.status = vmmio->static_hdr->status;
+		return;
+	}
+
     if (vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK) {
         for (i = 0; i < vmmio->num_vqs; i++) {
             vdev->ops->notify_vq(vmmio->kvm, vmmio->dev, i);
@@ -382,6 +397,40 @@ void generate_virtio_mmio_fdt_node(void *fdt,
 	generate_irq_prop(fdt, vmmio->irq, IRQ_TYPE_EDGE_RISING);
 	_FDT(fdt_end_node(fdt));
 }
+
+#if defined(RSLD) && defined(CONFIG_ARM64)
+void generate_notification_fdt_node(void *fdt,
+				   struct device_header *dev_hdr,
+				   void (*generate_irq_prop)(void *fdt,
+							     u8 irq,
+							     enum irq_type))
+{
+	char dev_name[DEVICE_NAME_MAX_LEN];
+	u64 addr = virtio_mmio_get_io_space_block(VIRTIO_MMIO_IO_SIZE);
+	struct virtio_mmio *vmmio = NULL;
+	struct kvm* kvm = NULL;
+	if (dev_hdr != NULL) {
+		vmmio = container_of(dev_hdr, struct virtio_mmio, dev_hdr);
+		kvm = vmmio->kvm;
+	}
+
+	u64 reg_prop[] = {
+		cpu_to_fdt64(addr),
+		cpu_to_fdt64(VIRTIO_MMIO_IO_SIZE),
+	};
+
+	snprintf(dev_name, DEVICE_NAME_MAX_LEN, "notif@%llx", addr);
+	kvm->cfg.hvl_irq = irq__alloc_line();
+
+	_FDT(fdt_begin_node(fdt, dev_name));
+	_FDT(fdt_property_string(fdt, "compatible", "notif,mmio"));
+	_FDT(fdt_property(fdt, "reg", reg_prop, sizeof(reg_prop)));
+	_FDT(fdt_property(fdt, "dma-coherent", NULL, 0));
+	generate_irq_prop(fdt, kvm->cfg.hvl_irq, IRQ_TYPE_EDGE_RISING);
+	_FDT(fdt_end_node(fdt));
+}
+#endif
+
 #else
 static void generate_virtio_mmio_fdt_node(void *fdt,
 					  struct device_header *dev_hdr,
@@ -438,6 +487,7 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
         vmmio_shm_size = vdev->ops->get_mem_size(vmmio->kvm, vmmio->dev);
 
     vmmio_shm_phys_addr = virtio_mmio_get_shm_space_block(kvm, vmmio_shm_size);
+    vdev->endian = VIRTIO_ENDIAN_LE;
 
     if (vmmio_shm_phys_addr != 0) {
         vmmio_shm_addr = (u64)kvm->shmem_start + (vmmio_shm_phys_addr - kvm->cfg.hvl_shmem_phys_addr);

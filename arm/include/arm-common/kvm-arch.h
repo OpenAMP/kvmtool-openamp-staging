@@ -67,7 +67,10 @@ struct kvm_arch {
 	 */
 	void	*ram_alloc_start;
 	u64	ram_alloc_size;
-
+#ifdef RSLD
+	void	*shm_alloc_start;
+	u64	shm_alloc_size;
+#endif
 	/*
 	 * Guest addresses for memory layout.
 	 */
