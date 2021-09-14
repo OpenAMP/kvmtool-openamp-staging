@@ -339,6 +339,12 @@ int kvm_cpu__init(struct kvm *kvm)
 {
 	int max_cpus, recommended_cpus, i;
 
+#ifdef RSLD
+	if (kvm->cfg.pmm) {
+		return 0;
+	}
+#endif
+
 	max_cpus = kvm__max_cpus(kvm);
 	recommended_cpus = kvm__recommended_cpus(kvm);
 
@@ -387,8 +393,10 @@ int kvm_cpu__exit(struct kvm *kvm)
 	int i, r;
 	void *ret = NULL;
 
-	kvm_cpu__delete(kvm->cpus[0]);
-	kvm->cpus[0] = NULL;
+	if (kvm->nrcpus != 0) {
+		kvm_cpu__delete(kvm->cpus[0]);
+		kvm->cpus[0] = NULL;
+	}
 
 	kvm__pause(kvm);
 	for (i = 1; i < kvm->nrcpus; i++) {

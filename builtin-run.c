@@ -53,6 +53,11 @@
 #define KB_SHIFT		(10)
 #define GB_SHIFT		(30)
 
+#ifdef RSLD
+static int kvm_cmd_run_pmm_work(struct kvm *kvm);
+static void *pmm_thread(void *arg);
+#endif
+
 __thread struct kvm_cpu *current_kvm_cpu;
 
 static int  kvm_run_wrapper;
@@ -99,6 +104,8 @@ void kvm_run_set_wrapper_sandbox(void)
     OPT_INTEGER('\0', "irq", &(cfg)->hvl_irq, "Notification IRQ"),	\
 	OPT_BOOLEAN('\0', "rsld", &(cfg)->rsld,	\
 			"Run in PMM mode"),		\
+	OPT_BOOLEAN('\0', "pmm", &(cfg)->pmm,	\
+			"Run in pure PMM mode"),		\
     OPT_STRING('\0', "transport", &(cfg)->transport, "transport",\
 			"virtio transport: mmio, pci"),	\
 	OPT_U64('\0', "shmem-addr", &(cfg)->hvl_shmem_phys_addr, "Shared memory"	\
@@ -220,6 +227,76 @@ panic_kvm:
 
 	return (void *) (intptr_t) 1;
 }
+
+#ifdef RSLD
+static void kvm_pmm_signal_handler(int signum)
+{
+	exit(signum);
+}
+
+int notify_mbox(struct kvm *kvm)
+{
+	write(kvm->notif_fd, "\n", 1);
+	return 0;
+}
+
+static void *pmm_thread(void *arg)
+{
+	char name[16];
+	struct kvm *kvm = arg;
+	int tid = 0;
+	int r = 0;
+	int fd;
+	char sval[20];
+    fd_set read_fd, write_fd;
+	sigset_t sigset;
+	struct kvm_cpu cpu = {0};
+	__u8  data[8] = {0};
+
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGALRM);
+
+	pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+
+	signal(SIGKVMEXIT, kvm_pmm_signal_handler);
+	signal(SIGKVMPAUSE, kvm_pmm_signal_handler);
+	signal(SIGKVMTASK, kvm_pmm_signal_handler);
+	signal(SIGUSR1, kvm_pmm_signal_handler);
+	signal(SIGTERM, kvm_pmm_signal_handler);
+
+
+	sprintf(name, "pmm-%d", tid);
+	kvm__set_thread_name(name);
+	cpu.kvm = kvm;
+
+    fd = open("/dev/umb", O_RDWR | O_NONBLOCK);
+    if (fd == -1)  {
+        die("open /dev/umb");
+    }
+
+	while(1) {
+		FD_ZERO(&read_fd);
+        FD_SET(fd, &read_fd);
+        FD_ZERO(&write_fd);
+        FD_SET(fd, &write_fd);
+
+        r = select(FD_SETSIZE, &read_fd, &write_fd, NULL, NULL);
+
+        if (r < 0) {
+            if (do_debug_print)
+                printf("lx: %s:%d - select error\n", __FUNCTION__, __LINE__);
+			continue;
+		}
+
+        if (FD_ISSET(fd, &read_fd)) {
+            read(fd, &sval, sizeof(sval));
+        }
+		kvm__emulate_mmio(&cpu,	0xe0000000,	data, 1, 1);
+	}
+
+	return (void *) (intptr_t) 0;
+}
+#endif
 
 static char kernel[PATH_MAX];
 
@@ -537,18 +614,23 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 	}
 
 	kvm->nr_disks = kvm->cfg.image_count;
+#ifdef RSLD
+	if (!kvm->cfg.pmm) {
+#endif
+		if (!kvm->cfg.kernel_filename && !kvm->cfg.firmware_filename) {
+			kvm->cfg.kernel_filename = find_kernel();
 
-	if (!kvm->cfg.kernel_filename && !kvm->cfg.firmware_filename) {
-		kvm->cfg.kernel_filename = find_kernel();
-
-		if (!kvm->cfg.kernel_filename) {
-			kernel_usage_with_options();
-			return ERR_PTR(-EINVAL);
+			if (!kvm->cfg.kernel_filename) {
+				kernel_usage_with_options();
+				return ERR_PTR(-EINVAL);
+			}
 		}
-	}
 
-	kvm->cfg.vmlinux_filename = find_vmlinux();
-	kvm->vmlinux = kvm->cfg.vmlinux_filename;
+		kvm->cfg.vmlinux_filename = find_vmlinux();
+		kvm->vmlinux = kvm->cfg.vmlinux_filename;
+#ifdef RSLD
+	}
+#endif
 
 	if (kvm->cfg.nrcpus == 0)
 		kvm->cfg.nrcpus = nr_online_cpus;
@@ -646,7 +728,11 @@ static struct kvm *kvm_cmd_run_init(int argc, const char **argv)
 				die("Unable to initialize virtio 9p");
 		}
 #endif
-		kvm->cfg.using_rootfs = kvm->cfg.custom_rootfs = 1;
+
+#ifdef RSLD
+		if (!kvm->cfg.pmm)
+			kvm->cfg.using_rootfs = kvm->cfg.custom_rootfs = 1;
+#endif
 	}
 
 	if (kvm->cfg.using_rootfs) {
@@ -713,18 +799,36 @@ static int kvm_cmd_run_work(struct kvm *kvm)
 			die("unable to create KVM VCPU thread");
 	}
 
-	/* Only VCPU #0 is going to exit by itself when shutting down */
-	if (pthread_join(kvm->cpus[0]->thread, NULL) != 0)
-		die("unable to join with vcpu 0");
+	if (kvm->nrcpus != 0)
+		/* Only VCPU #0 is going to exit by itself when shutting down */
+		if (pthread_join(kvm->cpus[0]->thread, NULL) != 0)
+			die("unable to join with vcpu 0");
 
 	return kvm_cpu__exit(kvm);
 }
+#ifdef RSLD
+static int kvm_cmd_run_pmm_work(struct kvm *kvm)
+{
+	if (pthread_create(&kvm->pmm_thread, NULL, pmm_thread, kvm) != 0)
+		die("unable to create PMM thread");
+
+	if (pthread_join(kvm->pmm_thread, NULL) != 0)
+		die("unable to join with PMM thread");
+
+	return kvm_cpu__exit(kvm);
+}
+#endif
 
 static void kvm_cmd_run_exit(struct kvm *kvm, int guest_ret)
 {
 	compat__print_all_messages();
 
 	init_list__exit(kvm);
+
+#ifdef RSLD
+	if (kvm->notif_fd > 0)
+		close(kvm->notif_fd);
+#endif
 
 #ifdef NO_TERSE
 	if (guest_ret == 0)
@@ -740,8 +844,17 @@ int kvm_cmd_run(int argc, const char **argv, const char *prefix)
 	kvm = kvm_cmd_run_init(argc, argv);
 	if (IS_ERR(kvm))
 		return PTR_ERR(kvm);
-
-	ret = kvm_cmd_run_work(kvm);
+#ifdef RSLD
+	if (kvm->cfg.pmm) {
+		int fd = open("/sys/devices/platform/umb/notify", O_RDWR | O_SYNC);
+		if (fd < 0) {
+			die("unable to open /sys/devices/platform/umb/notify");
+		}
+		kvm->notif_fd = fd;
+		ret = kvm_cmd_run_pmm_work(kvm);
+	} else
+#endif
+		ret = kvm_cmd_run_work(kvm);
 	kvm_cmd_run_exit(kvm, ret);
 
 	return ret;

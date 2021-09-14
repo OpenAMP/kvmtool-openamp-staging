@@ -49,11 +49,11 @@ Notes:
 - For an x86 guest, the irq parameter specifies an IO APIC interrupt line to be used as virtio backend-to-frontend notification.
 - In the hypervisorless mode of operation, the transport is mmio.
 - shmem-addr and shmem-size define a shared memory pool from which each virtio device receives a pre-shared memory region to use for virtqueues and data buffers
---vproxy enables notification indirection between the PMM and vhost_net and vhost_vsock to allow the PMM to make use of the host's AF_VSOCK support for example.
+--vproxy enables notification indirection between the PMM and vhost_net and vhost_vsock to allow the PMM to make use of the host's AF_VSOCK support.
 
 Currently the following virtio devices can operate in hypervisor-less mode: 9p, console, virtio network, virtio vsock.
 
-For example a deployment with VxWorks which enables the virtio frontends for virtio-net, vsock, both with vhost offloading, and virtio console, can be instantiated with the following parameters:
+This launch configuration enables virtio-net, vsock, 9p and virtio console for a guest running the VxWorks real-time operating system. In this configuration KVM is used to bootstrap the guest / virtio front-end and to support the notification infrastructure between the virtio back-end and front-end.
 
 lkvm run --debug-nohostfs --cpus 1 --mem 2048 \
 --console virtio \
@@ -61,6 +61,42 @@ lkvm run --debug-nohostfs --cpus 1 --mem 2048 \
 --shmem-addr 0xd4000000 --shmem-size 0x1000000 \
 --network mode=tap,tapif=tap0,trans=mmio,vhost=1 \
 --vproxy --vsock 3 \
+-- 9p /tmp,/tmp \
 -p "fs(0,0):/rsl/hello h=192.168.200.254 e=192.168.200.2 u=ftp pw=ftp o=virtioNet;;hello r=;;hvl.irq=12;;hvl.shm_addr=0xd4000000 f=0x400 tn=hello" \
 --kernel vxWorks_lpc
+
+# Full hypervisorless-mode virtio mode
+
+The  physical machine monitor virtio back-end has been validated in full hypervisorless mode on a Xilinx Zynq UltraScale+ MPSoC ZCU102 platform, with the RSL daemon running on PetaLinux on the main CPU cluster and with VxWorks running on one of the Cortex-R5 CPUs.
+
+The shared memory information is included in the PetaLinux DTB and is made accessible to the RSL daemon (virtio back-end) via a userspace I/O device. The notification mechanism between the back-end and the front-end is based on the Xilinx IPI (Inter Processor Interrupt) mailbox controller.
+
+## VMM to PMM transition
+
+The KVM VCPU threads were replaced with a PMM thread which monitors a char device fd for mailbox notifications.
+
+Several kvmtool initialization steps have been disabled and /dev/kvm not used at all.
+
+The PMM pseudo-state machine implemented in virtio/mmio.c / virtio_mmio_notification_out handles configuration and virtqueue notifications and calls the appropriate virtio device back-end to handle requests.
+
+A synchronization mechanism is put in place to handle queue PFN configuration which uses the same device register for all the virtqueues.
+
+VM sockets (vsock) are enabled with support from the Linux vhost_vsock module. The PMM registers call and kick eventfds with the vhost subsystem and acts as notification proxy between vhost_vsock and the virtio vsock driver in the auxiliary runtime known as guest in hypervisor-based deployments.
+
+A new command line parameter (--pmm) has been added to enable full hypervisor-less mode.
+
+An updated launch configuration will look like:
+
+lkvm run --debug \
+--vxworks --rsld --pmm --debug-nohostfs --transport mmio \
+--shmem-addr 0x77000000 --shmem-size 0x1000000 \
+--cpus 1 --mem 128 \
+-p "fs(0,0):/rsl/hello h=192.168.200.254 e=192.168.200.2 u=ftp pw=ftp o=virtioNet f=0x01 r=;;hvl.shm_addr=0x77000000" \
+--vproxy \
+--console virtio \
+--network mode=tap,tapif=tap0,trans=mmio \
+--vsock 3 \
+--9p /tmp,/tmp
+
+
 

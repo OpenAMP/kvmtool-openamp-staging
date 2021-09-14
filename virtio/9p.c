@@ -1367,10 +1367,6 @@ static void virtio_p9_do_io(struct kvm *kvm, void *param)
 	while (virt_queue__available(vq)) {
 		virtio_p9_do_io_request(kvm, job);
 		p9dev->vdev.ops->signal_vq(kvm, &p9dev->vdev, vq - p9dev->vqs);
-#ifdef RSLD
-        if (kvm->cfg.rsld)
-            kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
-#endif
 	}
 }
 

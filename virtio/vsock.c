@@ -271,14 +271,17 @@ static int notify_vq(struct kvm *kvm, void *dev, u32 vq)
 	struct vsock_dev *vdev = dev;
 
     if (kvm->cfg.vproxy) {
-        if (vdev->vproxy_kick_fds[vq] != 0) {
-            u64 tmp = 1;
-            int r = 0;
-            if ((r = write(vdev->vproxy_kick_fds[vq], &tmp, sizeof(tmp))) < 0) {
-				if (do_debug_print)
-					printf("vproxy: write vproxy_fds[%d] = %d failed - r = %d %s\n",
-						   vq, vdev->vproxy_kick_fds[vq], r, strerror(errno));
-            }
+		struct virt_queue *queue = &vdev->vqs[vq];
+		if (virt_queue__available(queue)) {
+			if (vdev->vproxy_kick_fds[vq] != 0) {
+				u64 tmp = 1;
+				int r = 0;
+				if ((r = write(vdev->vproxy_kick_fds[vq], &tmp, sizeof(tmp))) < 0) {
+					if (do_debug_print)
+						printf("vproxy: write vproxy_fds[%d] = %d failed - r = %d %s\n",
+							vq, vdev->vproxy_kick_fds[vq], r, strerror(errno));
+				}
+			}
         }
     }
 #endif
@@ -397,6 +400,11 @@ int virtio_vsock_init(struct kvm *kvm) {
 		pr_err("VHOST_GET_FEATURES failed on vhost-vsock device: %d", ret);
 		goto vhost_cleanup;
 	}
+
+#ifdef RSLD
+	struct virtio_mmio *vmmio = vdev->dev.virtio;
+	vmmio->static_hdr->host_features = vdev->features;
+#endif
 
 	mem = calloc(1, sizeof(*mem) + kvm->mem_slots * sizeof(struct vhost_memory_region));
 	if (mem == NULL) {

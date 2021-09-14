@@ -1012,9 +1012,13 @@ static int set_net_param(struct kvm *kvm, struct virtio_net_params *p,
 		p->fd = atoi(val);
 	} else if (strcmp(param, "mq") == 0) {
 		p->mq = atoi(val);
-	} else if (strcmp(param, "vproxy") == 0) {
+	}
+#ifdef RSLD
+	else if (strcmp(param, "vproxy") == 0) {
 		p->vproxy = atoi(val);
-	} else
+	}
+#endif
+	else
 		die("Unknown network parameter %s", param);
 
 	return 0;

@@ -66,7 +66,12 @@ int ioeventfd__init(struct kvm *kvm)
 	struct epoll_event epoll_event = {.events = EPOLLIN};
 	int r;
 
-	ioeventfd_avail = kvm__supports_extension(kvm, KVM_CAP_IOEVENTFD);
+    ioeventfd_avail = kvm__supports_extension(kvm, KVM_CAP_IOEVENTFD);
+#ifdef RSLD
+    if (kvm->cfg.pmm)
+        ioeventfd_avail = 1;
+#endif
+
 	if (!ioeventfd_avail)
 		return 1; /* Not fatal, but let caller determine no-go. */
 

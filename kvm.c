@@ -10,6 +10,7 @@
 #include <linux/kvm.h>
 #include <linux/list.h>
 #include <linux/err.h>
+#include <linux/sizes.h>
 
 #include <sys/un.h>
 #include <sys/stat.h>
@@ -64,7 +65,9 @@ extern struct kvm_ext kvm_req_ext[];
 static char kvm_dir[PATH_MAX];
 
 extern __thread struct kvm_cpu *current_kvm_cpu;
-
+#ifdef RSLD
+static unsigned int get_uio_size(char* size_file);
+#endif
 static int set_dir(const char *fmt, va_list args)
 {
 	char tmp[PATH_MAX];
@@ -325,12 +328,17 @@ int kvm__register_mem(struct kvm *kvm, u64 guest_phys, u64 size,
 			.memory_size		= size,
 			.userspace_addr		= (unsigned long)userspace_addr,
 		};
-
-		ret = ioctl(kvm->vm_fd, KVM_SET_USER_MEMORY_REGION, &mem);
-		if (ret < 0) {
-			ret = -errno;
-			goto out;
+#ifdef RSLD
+		if (!kvm->cfg.pmm) {
+#endif
+			ret = ioctl(kvm->vm_fd, KVM_SET_USER_MEMORY_REGION, &mem);
+			if (ret < 0) {
+				ret = -errno;
+				goto out;
+			}
+#ifdef RSLD
 		}
+#endif
 	}
 
 	list_add(&bank->list, prev_entry);
@@ -428,9 +436,65 @@ int kvm__max_cpus(struct kvm *kvm)
 	return ret;
 }
 
+#ifdef RSLD
+static unsigned int get_uio_size(char* size_file)
+{
+    int uio_size = 0;
+    char size_str[20] = {0};
+    FILE* f;
+
+    f = fopen(size_file, "r");
+    if (f == NULL)
+        return 0;
+
+    fscanf(f, "%s", size_str);
+    sscanf(size_str, "%x", &uio_size);
+    fclose(f);
+
+    return uio_size;
+}
+#endif
+
 int kvm__init(struct kvm *kvm)
 {
 	int ret;
+#ifdef RSLD
+	if (kvm->cfg.pmm) {
+		//shared memory setup
+		if (kvm->cfg.hvl_shmem_size != 0) {
+			int uiofd;
+			unsigned long shmem_size;
+			char *mptr;
+
+			uiofd = open("/dev/uio0", O_RDWR);
+			if (uiofd < 0) {
+				perror("uio open: ");
+				return errno;
+			}
+
+			shmem_size = get_uio_size((char *)"/sys/class/uio/uio0/maps/map0/size");
+			if (kvm->cfg.hvl_shmem_size > shmem_size) {
+				die("Requested shared memory size %lld is unavailable (UIO dev size = %ld)\n", kvm->cfg.hvl_shmem_size, shmem_size);
+			}
+			mptr = mmap(NULL, kvm->cfg.hvl_shmem_size, PROT_READ|PROT_WRITE, MAP_SHARED, uiofd, 0);
+			memset(mptr, 0, kvm->cfg.hvl_shmem_size);
+			if (mptr == MAP_FAILED) {
+				perror("mmap: ");
+				close(uiofd);
+				return errno;
+			}
+			kvm->shmem_start = mptr;
+
+			close(uiofd);
+
+			kvm->shmem_size = kvm->cfg.hvl_shmem_size;
+			INIT_LIST_HEAD(&kvm->mem_banks);
+			kvm__register_mem(kvm, kvm->cfg.hvl_shmem_phys_addr, kvm->shmem_size, kvm->shmem_start, KVM_MEM_TYPE_RAM);
+		}
+
+		return 0;
+	}
+#endif
 
 	if (!kvm__arch_cpu_supports_vm()) {
 		pr_err("Your CPU does not support hardware virtualization");
@@ -581,8 +645,12 @@ void kvm__dump_mem(struct kvm *kvm, unsigned long addr, unsigned long size, int 
 
 void kvm__reboot(struct kvm *kvm)
 {
+#ifdef RSLD
+	if (kvm->cfg.pmm)
+		pthread_kill(kvm->pmm_thread, SIGKVMEXIT);
+#endif
 	/* Check if the guest is running */
-	if (!kvm->cpus[0] || kvm->cpus[0]->thread == 0)
+	if (!kvm->cpus || !kvm->cpus[0] || kvm->cpus[0]->thread == 0)
 		return;
 
 	pthread_kill(kvm->cpus[0]->thread, SIGKVMEXIT);

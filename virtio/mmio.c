@@ -11,6 +11,10 @@
 #include <linux/virtio_mmio.h>
 #include <string.h>
 
+#ifdef RSLD
+#define HVL_CFG_ACK 0xAABBAABB
+#endif
+
 static u32 virtio_mmio_io_space_blocks = KVM_VIRTIO_MMIO_AREA;
 
 static u32 virtio_mmio_get_io_space_block(u32 size)
@@ -64,6 +68,9 @@ static int virtio_mmio_init_ioeventfd(struct kvm *kvm,
 	struct ioevent ioevent;
 	int err;
 
+#ifdef RSLD
+	if (!kvm->cfg.pmm) {
+#endif
 	vmmio->ioeventfds[vq] = (struct virtio_mmio_ioevent_param) {
 		.vdev		= vdev,
 		.vq		= vq,
@@ -91,6 +98,9 @@ static int virtio_mmio_init_ioeventfd(struct kvm *kvm,
 	if (err)
 		return err;
 
+#ifdef RSLD
+	}
+#endif
 	if (vdev->ops->notify_vq_eventfd)
 		vdev->ops->notify_vq_eventfd(kvm, vmmio->dev, vq, ioevent.fd);
 
@@ -106,7 +116,10 @@ int virtio_mmio_signal_vq(struct kvm *kvm, struct virtio_device *vdev, u32 vq)
 	if (kvm->cfg.rsld) {
 		if (vmmio->static_hdr != NULL)
 			vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_VRING;
-		kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
+		if (kvm->cfg.pmm)
+			notify_mbox(kvm);
+		else
+			kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
 	} else {
 #endif
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
@@ -133,8 +146,16 @@ int virtio_mmio_signal_config(struct kvm *kvm, struct virtio_device *vdev)
 	vmmio->hdr.interrupt_state |= VIRTIO_MMIO_INT_CONFIG;
 #ifdef RSLD
     vmmio->static_hdr->interrupt_state |= VIRTIO_MMIO_INT_CONFIG;
-#endif
+	if (kvm->cfg.rsld) {
+		if (kvm->cfg.pmm) {
+			notify_mbox(kvm);
+		} else {
+			kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
+		}
+	}
+#else
 	kvm__irq_trigger(vmmio->kvm, vmmio->irq);
+#endif
 
 	return 0;
 }
@@ -279,31 +300,58 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
 	u32 val = 0;
     static int qidx = 0;
     int i = 0;
+	int hvl_cfg_notif = 0;
+	int reinit = 0;
 
 	if ((vmmio->static_hdr->status != vmmio->hdr.status) && (vmmio->static_hdr->status == 0) &&
 		(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK)) {
 		//reinit
 		vmmio->hdr.status = vmmio->static_hdr->status;
-		return;
+		vmmio->hdr.queue_sel = 0xff00ff00;
+		vmmio->static_hdr->queue_sel = ~vmmio->hdr.queue_sel;
+		reinit = 1;
 	}
 
-    if (vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK) {
-        for (i = 0; i < vmmio->num_vqs; i++) {
-            vdev->ops->notify_vq(vmmio->kvm, vmmio->dev, i);
-        }
-        return;
-    }
+	if (vmmio->static_hdr->status < vmmio->hdr.status) {
+		//reinit
+		vmmio->hdr.status = vmmio->static_hdr->status;
+		vmmio->hdr.queue_sel = 0xff00ff00;
+		vmmio->static_hdr->queue_sel = ~vmmio->hdr.queue_sel;
+		reinit = 1;
+	}
+
+	if (vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK) {
+		if (vmmio->static_hdr->interrupt_ack) {
+			vmmio->static_hdr->interrupt_state = vmmio->hdr.interrupt_state = 0;
+			vmmio->static_hdr->interrupt_ack = 0;
+			return;
+		}
+	}
 
     if (vmmio->static_hdr->guest_features != vmmio->hdr.guest_features) {
 		virtio_set_guest_features(kvm, vdev, vmmio->dev, vmmio->static_hdr->guest_features);
         vmmio->hdr.guest_features = vmmio->static_hdr->guest_features;
     }
 
+    if (vmmio->static_hdr->status != vmmio->hdr.status) {
+        vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
+        if (!vmmio->hdr.status) {
+            if (kvm->cfg.pmm) {
+				vdev->endian = VIRTIO_ENDIAN_LE;
+			} else {
+				vdev->endian = kvm_cpu__get_endianness(vcpu);
+			}
+		}
+        vmmio->hdr.status = vmmio->static_hdr->status;
+        virtio_notify_status(kvm, vdev, vmmio->dev, vmmio->hdr.status);
+    }
+
     if ((vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER) && (!(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK))) {
         if (vmmio->static_hdr->queue_sel != vmmio->hdr.queue_sel) {
 			vmmio->hdr.queue_sel = vmmio->static_hdr->queue_sel;
         }
-        if (vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) {
+        if ((vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) &&
+			(vmmio->static_hdr->queue_pfn != HVL_CFG_ACK)) {
             vmmio->hdr.queue_pfn = vmmio->static_hdr->queue_pfn;
     		val = vmmio->static_hdr->queue_pfn;
             qidx = vmmio->num_vqs;
@@ -315,24 +363,33 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
     					   vmmio->static_hdr->queue_align,
     					   val);
                 vmmio->num_vqs++;
+				hvl_cfg_notif = 1;
+				//signal completion
+				vmmio->static_hdr->queue_pfn = HVL_CFG_ACK;
             } else {
     			virtio_mmio_exit_vq(kvm, vdev, qidx);
     		}
-        }
+        } else {
+			if (reinit) {
+				hvl_cfg_notif = 1;
+				vmmio->static_hdr->queue_pfn = HVL_CFG_ACK;
+			}
+		}
     }
 
-    if (vmmio->static_hdr->status != vmmio->hdr.status) {
-        vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
-        if (!vmmio->hdr.status)
-			vdev->endian = kvm_cpu__get_endianness(vcpu);
-        vmmio->hdr.status = vmmio->static_hdr->status;
-        virtio_notify_status(kvm, vdev, vmmio->dev, vmmio->hdr.status);
-    }
+	if (hvl_cfg_notif)
+		notify_mbox(kvm);
+
     if (vmmio->static_hdr->interrupt_state != vmmio->hdr.interrupt_state) {
         vmmio->hdr.interrupt_state &= ~vmmio->static_hdr->interrupt_state;
         vmmio->static_hdr->interrupt_state = vmmio->hdr.interrupt_state;
     }
-    //TODO: check config changes @VIRTIO_MMIO_CONFIG
+
+    if (vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK) {
+        for (i = 0; i < vmmio->num_vqs; i++) {
+            vdev->ops->notify_vq(vmmio->kvm, vmmio->dev, i);
+        }
+    }
 }
 #endif
 
@@ -495,6 +552,7 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
         vmmio->hdr.shm_len_high = virtio_host_to_guest_u32(vdev, vmmio_shm_size >> 32);
         vmmio->hdr.shm_base_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_phys_addr);
         vmmio->hdr.shm_base_high = virtio_host_to_guest_u32(vdev, vmmio_shm_phys_addr >> 32);
+		vmmio->hdr.queue_sel = 0xff00ff00;
 
         memcpy((void *)vmmio_shm_addr, &vmmio->hdr, sizeof(struct virtio_mmio_hdr));
         vmmio->static_hdr = (struct virtio_mmio_hdr *)vmmio_shm_addr;

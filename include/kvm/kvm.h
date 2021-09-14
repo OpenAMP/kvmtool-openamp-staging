@@ -92,8 +92,10 @@ struct kvm {
 	pthread_rwlock_t	brlock_sem;
 #endif
 #ifdef RSLD
-	u64			shmem_size;
-	void			*shmem_start;
+	u64 shmem_size;
+	void *shmem_start;
+	pthread_t pmm_thread;
+    int notif_fd;
 #endif
 };
 

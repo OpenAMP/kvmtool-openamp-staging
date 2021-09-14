@@ -75,11 +75,6 @@ static void virtio_console__inject_interrupt_callback(struct kvm *kvm, void *par
 		len = term_getc_iov(kvm, iov, in, 0);
 		virt_queue__set_used_elem(vq, head, len);
 		cdev.vdev.ops->signal_vq(kvm, &cdev.vdev, vq - cdev.vqs);
-#ifdef RSLD
-		if (kvm->cfg.rsld) {
-			kvm__irq_trigger(kvm, kvm->cfg.hvl_irq);
-        }
-#endif
 	}
 
 	mutex_unlock(&cdev.mutex);

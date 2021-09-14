@@ -111,6 +111,12 @@ static struct psci_fns psci_0_2_aarch64_fns = {
 
 static int setup_fdt(struct kvm *kvm)
 {
+#ifdef RSLD
+	if (kvm->cfg.pmm) {
+		return 0;
+	}
+#endif
+
 	struct device_header *dev_hdr;
 	u8 staging_fdt[FDT_MAX_SIZE];
 	u64 mem_reg_prop[]	= {
