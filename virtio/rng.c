@@ -33,6 +33,11 @@ struct rng_dev {
 
 	int			fd;
 
+#ifdef RSLD
+    u32			config_size;
+    u32			mem_size;
+#endif
+
 	/* virtio queue */
 	struct virt_queue	vqs[NUM_VIRT_QUEUES];
 	struct rng_dev_job	jobs[NUM_VIRT_QUEUES];
@@ -57,6 +62,21 @@ static void set_guest_features(struct kvm *kvm, void *dev, u32 features)
 {
 	/* Unused */
 }
+
+#ifdef RSLD
+static u32 get_config_size(struct kvm *kvm, void *dev)
+{
+	struct rng_dev *rdev = dev;
+
+	return (rdev->config_size);
+}
+
+static u32 get_mem_size(struct kvm *kvm, void *dev)
+{
+	struct rng_dev *rdev = dev;
+	return (rdev->mem_size);
+}
+#endif
 
 static bool virtio_rng_do_io_request(struct kvm *kvm, struct rng_dev *rdev, struct virt_queue *queue)
 {
@@ -149,6 +169,10 @@ static int get_vq_count(struct kvm *kvm, void *dev)
 
 static struct virtio_ops rng_dev_virtio_ops = {
 	.get_config		= get_config,
+#ifdef RSLD
+	.get_config_size	= get_config_size,
+	.get_mem_size	= get_mem_size,
+#endif
 	.get_host_features	= get_host_features,
 	.set_guest_features	= set_guest_features,
 	.init_vq		= init_vq,
@@ -163,6 +187,7 @@ int virtio_rng__init(struct kvm *kvm)
 {
 	struct rng_dev *rdev;
 	int r;
+	enum virtio_trans trans = VIRTIO_DEFAULT_TRANS(kvm);
 
 	if (!kvm->cfg.virtio_rng)
 		return 0;
@@ -177,8 +202,20 @@ int virtio_rng__init(struct kvm *kvm)
 		goto cleanup;
 	}
 
+#ifdef RSLD
+    if (strncmp(kvm->cfg.transport, "mmio", 4) == 0) {
+        trans = VIRTIO_MMIO;
+    }
+
+    if (strncmp(kvm->cfg.transport, "pci", 3) == 0) {
+        trans = VIRTIO_PCI;
+    }
+    rdev->config_size = 0;
+    rdev->mem_size = 0x6000;
+#endif
+
 	r = virtio_init(kvm, rdev, &rdev->vdev, &rng_dev_virtio_ops,
-			VIRTIO_DEFAULT_TRANS(kvm), PCI_DEVICE_ID_VIRTIO_RNG,
+			trans, PCI_DEVICE_ID_VIRTIO_RNG,
 			VIRTIO_ID_RNG, PCI_CLASS_RNG);
 	if (r < 0)
 		goto cleanup;
