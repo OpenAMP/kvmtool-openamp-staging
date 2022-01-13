@@ -511,7 +511,9 @@ static u32 get_host_features(struct kvm *kvm, void *dev)
 		| 1UL << VIRTIO_NET_F_HOST_TSO6
 		| 1UL << VIRTIO_NET_F_GUEST_TSO4
 		| 1UL << VIRTIO_NET_F_GUEST_TSO6
+#ifndef RSLD
 		| 1UL << VIRTIO_RING_F_EVENT_IDX
+#endif
 		| 1UL << VIRTIO_RING_F_INDIRECT_DESC
 		| 1UL << VIRTIO_NET_F_CTRL_VQ
 		| 1UL << VIRTIO_NET_F_MRG_RXBUF
@@ -646,7 +648,12 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 	queue->pfn	= pfn;
 	p		= virtio_get_vq(kvm, queue->pfn, page_size);
 
+
+#ifdef RSLD
+	vring_init(&queue->vring, queue->num, p, align);
+#else
 	vring_init(&queue->vring, VIRTIO_NET_QUEUE_SIZE, p, align);
+#endif
 	virtio_init_device_vq(&ndev->vdev, queue);
 
 	mutex_init(&net_queue->lock);
@@ -886,6 +893,11 @@ static int get_size_vq(struct kvm *kvm, void *dev, u32 vq)
 
 static int set_size_vq(struct kvm *kvm, void *dev, u32 vq, int size)
 {
+#ifdef RSLD
+	struct virt_queue *queue;
+	queue = get_vq(kvm, dev, vq);
+	queue->num = size;
+#endif
 	/* FIXME: dynamic */
 	return size;
 }
