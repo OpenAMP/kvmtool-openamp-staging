@@ -122,7 +122,11 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 
 	job = &rdev->jobs[vq];
 
+#ifdef RSLD
+	vring_init(&queue->vring, queue->num, p, align);
+#else
 	vring_init(&queue->vring, VIRTIO_RNG_QUEUE_SIZE, p, align);
+#endif
 	virtio_init_device_vq(&rdev->vdev, queue);
 
 	*job = (struct rng_dev_job) {
@@ -158,6 +162,12 @@ static int get_size_vq(struct kvm *kvm, void *dev, u32 vq)
 
 static int set_size_vq(struct kvm *kvm, void *dev, u32 vq, int size)
 {
+#ifdef RSLD
+	struct rng_dev *rdev = dev;
+	struct virt_queue *queue;
+	queue = &rdev->vqs[vq];
+	queue->num = size;
+#endif
 	/* FIXME: dynamic */
 	return size;
 }

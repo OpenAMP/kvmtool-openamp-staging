@@ -46,6 +46,9 @@
 struct virt_queue {
 	struct vring	vring;
 	u32		pfn;
+#ifdef RSLD
+	u32		num;
+#endif
 	/* The last_avail_idx field is an index to ->ring of struct vring_avail.
 	   It's where we assume the next request index is at.  */
 	u16		last_avail_idx;
