@@ -111,7 +111,9 @@ void kvm_run_set_wrapper_sandbox(void)
 	OPT_U64('\0', "shmem-addr", &(cfg)->hvl_shmem_phys_addr, "Shared memory"	\
 		" physical address"),					\
 	OPT_U64('\0', "shmem-size", &(cfg)->hvl_shmem_size, "Shared memory size"), \
-	OPT_BOOLEAN('\0', "vproxy", &(cfg)->vproxy,	"vhost proxy mode"),
+	OPT_BOOLEAN('\0', "vproxy", &(cfg)->vproxy,	"vhost proxy mode"), \
+	OPT_BOOLEAN('\0', "no-dtb", &(cfg)->no_dtb,	"Don't populate PMM device" \
+        " tree in shared memory"),
 #else
 #define OPT_PMM(...)
 #endif
@@ -273,6 +275,8 @@ static void *pmm_thread(void *arg)
     if (fd == -1)  {
         die("open /dev/umb");
     }
+
+    kvm->notif_fd = fd;
 
 	while(1) {
 		FD_ZERO(&read_fd);
@@ -846,11 +850,6 @@ int kvm_cmd_run(int argc, const char **argv, const char *prefix)
 		return PTR_ERR(kvm);
 #ifdef RSLD
 	if (kvm->cfg.pmm) {
-		int fd = open("/sys/devices/platform/umb/notify", O_RDWR | O_SYNC);
-		if (fd < 0) {
-			die("unable to open /sys/devices/platform/umb/notify");
-		}
-		kvm->notif_fd = fd;
 		ret = kvm_cmd_run_pmm_work(kvm);
 	} else
 #endif

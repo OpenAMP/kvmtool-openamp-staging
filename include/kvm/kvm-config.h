@@ -73,6 +73,7 @@ struct kvm_config {
     u64 hvl_shmem_phys_addr;
     u64 hvl_shmem_size;
     bool vproxy;
+    bool no_dtb;
 #endif
 };
 

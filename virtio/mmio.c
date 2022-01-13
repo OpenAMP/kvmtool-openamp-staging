@@ -44,6 +44,9 @@ static u64 virtio_mmio_get_shm_space_block(struct kvm *kvm, u32 size)
         return 0;
 
     if (virtio_mmio_shm_space_blocks == 0) {
+        if (kvm->cfg.no_dtb) {
+            virtio_mmio_shm_dtb_offset = 0;
+        }
         virtio_mmio_shm_space_blocks = kvm->cfg.hvl_shmem_phys_addr + virtio_mmio_shm_dtb_offset;
     }
     block = virtio_mmio_shm_space_blocks;
@@ -346,11 +349,23 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
         virtio_notify_status(kvm, vdev, vmmio->dev, vmmio->hdr.status);
     }
 
-    if ((vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER) && (!(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK))) {
+    if (!(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK)) {
         if (vmmio->static_hdr->queue_sel != vmmio->hdr.queue_sel) {
 			vmmio->hdr.queue_sel = vmmio->static_hdr->queue_sel;
+            vmmio->hdr.queue_num = 0xff00ff00;
         }
-        if ((vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) &&
+
+		if ((vmmio->static_hdr->queue_num != vmmio->hdr.queue_num) &&
+			(vmmio->static_hdr->queue_num != HVL_CFG_ACK)) {
+			val = vmmio->static_hdr->queue_num;
+
+			if (val) {
+				vmmio->hdr.queue_num = val;
+				vdev->ops->set_size_vq(vmmio->kvm, vmmio->dev,
+				       vmmio->num_vqs, val);
+			}
+		}
+		if ((vmmio->static_hdr->queue_pfn != vmmio->hdr.queue_pfn) &&
 			(vmmio->static_hdr->queue_pfn != HVL_CFG_ACK)) {
             vmmio->hdr.queue_pfn = vmmio->static_hdr->queue_pfn;
     		val = vmmio->static_hdr->queue_pfn;
@@ -507,6 +522,7 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
     u64 vmmio_shm_addr = 0;
     u64 vmmio_shm_phys_addr = 0;
     u64 vmmio_shm_size = 0x400000; //4MB
+    u64 vmmio_hdr_addr = 0;
 #endif
 
 	vmmio->addr	= virtio_mmio_get_io_space_block(VIRTIO_MMIO_IO_SIZE);
@@ -552,10 +568,18 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
         vmmio->hdr.shm_len_high = virtio_host_to_guest_u32(vdev, vmmio_shm_size >> 32);
         vmmio->hdr.shm_base_low = virtio_host_to_guest_u32(vdev, (u32)vmmio_shm_phys_addr);
         vmmio->hdr.shm_base_high = virtio_host_to_guest_u32(vdev, vmmio_shm_phys_addr >> 32);
-		vmmio->hdr.queue_sel = 0xff00ff00;
+        vmmio->hdr.queue_sel = 0xff00ff00;
+        vmmio->hdr.queue_num = 0xff00ff00;
+        vmmio->hdr.queue_pfn = 0xff00ff00;
 
-        memcpy((void *)vmmio_shm_addr, &vmmio->hdr, sizeof(struct virtio_mmio_hdr));
-        vmmio->static_hdr = (struct virtio_mmio_hdr *)vmmio_shm_addr;
+        if (kvm->cfg.no_dtb) {
+            vmmio_hdr_addr = (u64)kvm->shmem_start + vmmio->addr - KVM_VIRTIO_MMIO_AREA;
+        } else {
+            vmmio_hdr_addr = vmmio_shm_addr;
+        }
+
+        memcpy((void *)vmmio_hdr_addr, &vmmio->hdr, sizeof(struct virtio_mmio_hdr));
+        vmmio->static_hdr = (struct virtio_mmio_hdr *)vmmio_hdr_addr;
         vmmio->static_hdr->guest_page_size = 0x1000;
         vmmio->static_hdr->queue_align = 0x1000;
         vmmio->static_hdr->host_features = vdev->ops->get_host_features(vmmio->kvm, vmmio->dev);
@@ -565,6 +589,8 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
         vmmio->hdr.queue_num_max = vmmio->static_hdr->queue_num_max;
         vmmio->hdr.queue_align = vmmio->static_hdr->queue_align;
         vmmio->static_hdr->queue_sel = ~vmmio->hdr.queue_sel;
+        vmmio->static_hdr->queue_num = ~vmmio->hdr.queue_num;
+        vmmio->static_hdr->queue_pfn = 0;
 
         if (vdev->ops->get_config_size) {
             int config_size = vdev->ops->get_config_size(vmmio->kvm, vmmio->dev);
@@ -583,8 +609,14 @@ int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 	 *
 	 * virtio_mmio.devices=0x200@0xd2000000:5,0x200@0xd2000200:6
 	 */
+#ifdef RSLD
+	pr_debug("virtio-mmio.devices=0x%x@0x%llx [0x%x:0x%x]", VIRTIO_MMIO_IO_SIZE,
+			 (u64)vmmio->static_hdr - (u64)kvm->shmem_start + kvm->cfg.hvl_shmem_phys_addr,
+			 vmmio->hdr.vendor_id, vmmio->hdr.device_id);
+#else
 	pr_debug("virtio-mmio.devices=0x%x@0x%x:%d", VIRTIO_MMIO_IO_SIZE,
 		 vmmio->addr, vmmio->irq);
+#endif
 
 	return 0;
 }
@@ -640,6 +672,9 @@ static int setup_virtio_mmio_fdt(struct kvm *kvm)
 	void *fdt = staging_fdt;
 	void (*generate_mmio_fdt_nodes)(void *, struct device_header *,
 					void (*)(void *, u8, enum irq_type));
+
+	if (kvm->cfg.no_dtb)
+		return 0;
 
 	/* Create new tree without a reserve map */
 	_FDT(fdt_create(fdt, FDT_MAX_SIZE));

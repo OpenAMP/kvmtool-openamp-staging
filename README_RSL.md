@@ -98,5 +98,13 @@ lkvm run --debug \
 --vsock 3 \
 --9p /tmp,/tmp
 
+Zephyr can be used as a secondary runtime in a hypervisor-less virtio deployment. In this case the launch configuration would be similar to:
 
+lkvm run --debug \
+--vxworks --rsld --pmm --debug-nohostfs --transport mmio \
+--shmem-addr 0x77000000 --shmem-size 0x1000000 \
+--cpus 1 --mem 128 --no-dtb \
+--vproxy \
+--rng \
+--network mode=tap,tapif=tap0,trans=mmio
 
