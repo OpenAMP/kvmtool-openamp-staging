@@ -323,14 +323,24 @@ $(warning No static libc found. Skipping guest init)
 endif
 
 ifeq (y,$(ARCH_WANT_LIBFDT))
-	ifneq ($(call try-build,$(SOURCE_LIBFDT),$(CFLAGS),-lfdt),y)
-          $(error No libfdt found. Please install libfdt-dev package)
-	else
-		CFLAGS_DYNOPT	+= -DCONFIG_HAS_LIBFDT
-		CFLAGS_STATOPT	+= -DCONFIG_HAS_LIBFDT
-		LIBS_DYNOPT	+= -lfdt
-		LIBS_STATOPT	+= -lfdt
-	endif
+    ifeq ($(RSLD),1)
+        ifneq (,$(HVL_WORKSPACE))
+            CFLAGS_DYNOPT	+= -DCONFIG_HAS_LIBFDT -I$(HVL_WORKSPACE)/sysroot/include
+            CFLAGS_STATOPT	+= -DCONFIG_HAS_LIBFDT -I$(HVL_WORKSPACE)/sysroot/include
+            LIBS_DYNOPT	+= -lfdt -L$(HVL_WORKSPACE)/sysroot/lib
+            LIBS_STATOPT	+= -lfdt -L$(HVL_WORKSPACE)/sysroot/lib
+            CFLAGS += -march=armv8-a+crc -mtune=cortex-a72.cortex-a53 --sysroot=/home/dan/opt/petalinux/2020.2/sysroots/aarch64-xilinx-linux  -O2 -pipe -g -feliminate-unused-debug-types   -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed
+        endif
+    else
+        ifneq ($(call try-build,$(SOURCE_LIBFDT),$(CFLAGS),-lfdt),y)
+            $(error No libfdt found. Please install libfdt-dev package)
+        else
+            CFLAGS_DYNOPT	+= -DCONFIG_HAS_LIBFDT
+            CFLAGS_STATOPT	+= -DCONFIG_HAS_LIBFDT
+            LIBS_DYNOPT	+= -lfdt
+            LIBS_STATOPT	+= -lfdt
+        endif
+    endif
 endif
 
 ifeq ($(call try-build,$(SOURCE_HELLO),$(CFLAGS),-no-pie),y)

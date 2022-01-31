@@ -294,6 +294,8 @@ static void virtio_mmio_config_out(struct kvm_cpu *vcpu,
 }
 
 #ifdef RSLD
+#include <time.h>
+
 static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
 				   u64 addr, void *data, u32 len,
 				   struct virtio_device *vdev)
@@ -305,6 +307,11 @@ static void virtio_mmio_notification_out(struct kvm_cpu *vcpu,
     int i = 0;
 	int hvl_cfg_notif = 0;
 	int reinit = 0;
+
+#if 1
+	struct timespec tm = {0, 1000000L};
+	nanosleep(&tm, NULL);
+#endif
 
 	if ((vmmio->static_hdr->status != vmmio->hdr.status) && (vmmio->static_hdr->status == 0) &&
 		(vmmio->hdr.status & VIRTIO_CONFIG_S_DRIVER_OK)) {
