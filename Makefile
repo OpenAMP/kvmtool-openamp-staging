@@ -329,7 +329,7 @@ ifeq (y,$(ARCH_WANT_LIBFDT))
             CFLAGS_STATOPT	+= -DCONFIG_HAS_LIBFDT -I$(HVL_WORKSPACE)/sysroot/include
             LIBS_DYNOPT	+= -lfdt -L$(HVL_WORKSPACE)/sysroot/lib
             LIBS_STATOPT	+= -lfdt -L$(HVL_WORKSPACE)/sysroot/lib
-            CFLAGS += -march=armv8-a+crc -mtune=cortex-a72.cortex-a53 --sysroot=/home/dan/opt/petalinux/2020.2/sysroots/aarch64-xilinx-linux  -O2 -pipe -g -feliminate-unused-debug-types   -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed
+            CFLAGS += -march=armv8-a+crc -mtune=cortex-a72.cortex-a53 --sysroot=$(HVL_WORKSPACE)/petalinux/2020.2/sysroots/aarch64-xilinx-linux  -O2 -pipe -g -feliminate-unused-debug-types   -Wl,-O1 -Wl,--hash-style=gnu -Wl,--as-needed
         endif
     else
         ifneq ($(call try-build,$(SOURCE_LIBFDT),$(CFLAGS),-lfdt),y)
