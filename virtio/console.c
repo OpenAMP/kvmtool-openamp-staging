@@ -34,7 +34,8 @@ struct con_dev {
 	struct virtio_device		vdev;
 	struct virt_queue		vqs[VIRTIO_CONSOLE_NUM_QUEUES];
 	struct virtio_console_config	config;
-    u32				mem_size;
+	u32				config_size;
+	u32				mem_size;
 	u32				features;
 	int				vq_ready;
 
@@ -69,12 +70,17 @@ static void virtio_console__inject_interrupt_callback(struct kvm *kvm, void *par
 	mutex_lock(&cdev.mutex);
 
 	vq = param;
-
-	if (term_readable(0) && virt_queue__available(vq)) {
-		head = virt_queue__get_iov(vq, iov, &out, &in, kvm);
-		len = term_getc_iov(kvm, iov, in, 0);
-		virt_queue__set_used_elem(vq, head, len);
-		cdev.vdev.ops->signal_vq(kvm, &cdev.vdev, vq - cdev.vqs);
+	if (term_readable(0)) {
+		if (virt_queue__available(vq)) {
+			head = virt_queue__get_iov(vq, iov, &out, &in, kvm);
+			len = term_getc_iov(kvm, iov, in, 0);
+			virt_queue__set_used_elem(vq, head, len);
+			cdev.vdev.ops->signal_vq(kvm, &cdev.vdev, vq - cdev.vqs);
+		} else {
+#ifdef RSLD
+			cdev.vdev.ops->signal_vq(kvm, &cdev.vdev, vq - cdev.vqs);
+#endif
+		}
 	}
 
 	mutex_unlock(&cdev.mutex);
@@ -155,7 +161,11 @@ static int init_vq(struct kvm *kvm, void *dev, u32 vq, u32 page_size, u32 align,
 	queue->pfn	= pfn;
 	p		= virtio_get_vq(kvm, queue->pfn, page_size);
 
+#ifdef RSLD
+	vring_init(&queue->vring, queue->num, p, align);
+#else
 	vring_init(&queue->vring, VIRTIO_CONSOLE_QUEUE_SIZE, p, align);
+#endif
 	virtio_init_device_vq(&cdev.vdev, queue);
 
 	if (vq == VIRTIO_CONSOLE_TX_QUEUE) {
@@ -206,6 +216,12 @@ static int get_size_vq(struct kvm *kvm, void *dev, u32 vq)
 
 static int set_size_vq(struct kvm *kvm, void *dev, u32 vq, int size)
 {
+#ifdef RSLD
+	struct con_dev *cdev = dev;
+	struct virt_queue *queue;
+	queue = &cdev->vqs[vq];
+	queue->num = size;
+#endif
 	/* FIXME: dynamic */
 	return size;
 }
@@ -216,6 +232,12 @@ static int get_vq_count(struct kvm *kvm, void *dev)
 }
 
 #ifdef RSLD
+static u32 get_config_size(struct kvm *kvm, void *dev)
+{
+	struct con_dev *cdev = dev;
+	return (cdev->config_size);
+}
+
 static u32 get_mem_size(struct kvm *kvm, void *dev)
 {
 	struct con_dev *cdev = dev;
@@ -226,7 +248,8 @@ static u32 get_mem_size(struct kvm *kvm, void *dev)
 static struct virtio_ops con_dev_virtio_ops = {
 	.get_config		= get_config,
 #ifdef RSLD
-	.get_mem_size	= get_mem_size,
+	.get_config_size = get_config_size,
+	.get_mem_size	 = get_mem_size,
 #endif
 	.get_host_features	= get_host_features,
 	.set_guest_features	= set_guest_features,
@@ -256,6 +279,7 @@ int virtio_console__init(struct kvm *kvm)
     if (strncmp(kvm->cfg.transport, "pci", 3) == 0) {
         trans = VIRTIO_PCI;
     }
+    cdev.config_size = sizeof(struct virtio_console_config);
     cdev.mem_size = 0x6000;
 #endif
 
