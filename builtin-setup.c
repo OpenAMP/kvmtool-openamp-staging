@@ -168,7 +168,9 @@ int kvm_setup_guest_init(const char *guestfs_name)
 #else
 int kvm_setup_guest_init(const char *guestfs_name)
 {
+#ifndef RSLD
 	die("Guest init image not compiled in");
+#endif
 	return 0;
 }
 #endif
