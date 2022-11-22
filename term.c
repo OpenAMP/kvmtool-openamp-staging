@@ -25,6 +25,7 @@ static pthread_t term_poll_thread;
 
 /* ctrl-a is used for escape */
 #define term_escape_char	0x01
+#define term_escape_char_b	0x02
 
 int term_getc(struct kvm *kvm, int term)
 {
@@ -38,11 +39,11 @@ int term_getc(struct kvm *kvm, int term)
 		term_got_escape = false;
 		if (c == 'x')
 			kvm__reboot(kvm);
-		if (c == term_escape_char)
+		if (c == term_escape_char || c == term_escape_char_b)
 			return c;
 	}
 
-	if (c == term_escape_char) {
+	if (c == term_escape_char || c == term_escape_char_b) {
 		term_got_escape = true;
 		return -1;
 	}
